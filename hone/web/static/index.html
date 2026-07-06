@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hone — risk tools for retail investors</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎯</text></svg>">
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --ink-1: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6;   /* target / primary */
+    --series-2: #1baf7a;   /* current / secondary */
+    --good: #006300;
+    --critical: #d03b3b;
+    --ramp-lo: #86b6ef;    /* ordinal ramp ends (tier gauge) */
+    --ramp-hi: #0d366b;
+    --accent-wash: rgba(42,120,214,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --ink-1: #ffffff;
+      --ink-2: #c3c2b7;
+      --ink-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5;
+      --series-2: #199e70;
+      --good: #0ca30c;
+      --critical: #d03b3b;
+      --ramp-lo: #3987e5;
+      --ramp-hi: #184f95;
+      --accent-wash: rgba(57,135,229,0.16);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page); color: var(--ink-1);
+    font-size: 15px; line-height: 1.5;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 24px 20px 80px; }
+  header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+  header p  { color: var(--ink-2); margin-top: 2px; }
+
+  nav.steps { display: flex; gap: 6px; margin: 20px 0; flex-wrap: wrap; }
+  nav.steps button {
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-2);
+    border-radius: 999px; padding: 7px 14px; font-size: 14px; cursor: pointer;
+    font-family: inherit;
+  }
+  nav.steps button.active { background: var(--series-1); border-color: transparent; color: #fff; }
+  nav.steps button .n {
+    display: inline-block; font-weight: 700; margin-right: 6px; opacity: 0.7;
+  }
+
+  section.panel { display: none; }
+  section.panel.active { display: block; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 16px; margin-bottom: 4px; }
+  .card p.sub { color: var(--ink-2); font-size: 14px; margin-bottom: 12px; }
+  .muted { color: var(--ink-muted); font-size: 13px; }
+
+  button.primary {
+    background: var(--series-1); color: #fff; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 15px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  button.primary:disabled { opacity: 0.45; cursor: default; }
+  button.ghost {
+    background: none; border: 1px solid var(--border); color: var(--ink-2);
+    border-radius: 8px; padding: 9px 14px; font-size: 14px; cursor: pointer;
+    font-family: inherit;
+  }
+  input[type=text], input[type=number], input[type=password], select {
+    background: var(--page); color: var(--ink-1);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 14px; font-family: inherit; width: 100%;
+  }
+  label.field { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 10px; }
+  label.field span { display: block; margin-bottom: 3px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 130px; }
+  .row > button.v-del { flex: 0 0 auto; min-width: 0; align-self: flex-end; }
+
+  /* questionnaire */
+  .qprogress { height: 4px; background: var(--grid); border-radius: 2px; margin: 10px 0 16px; }
+  .qprogress > div { height: 100%; background: var(--series-1); border-radius: 2px; width: 0; }
+  .lottery-pair { display: flex; gap: 10px; margin-top: 14px; }
+  .lottery {
+    flex: 1; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 14px; cursor: pointer; background: var(--surface-1);
+  }
+  .lottery:hover { border-color: var(--series-1); }
+  .lottery .tag { font-size: 12px; font-weight: 700; color: var(--ink-muted); letter-spacing: 0.06em; }
+  .lottery .outcome { display: flex; justify-content: space-between; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .lottery .outcome b { font-weight: 600; }
+
+  /* hero + stat tiles */
+  .hero { font-size: 44px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  .tiles { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .tile {
+    flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; background: var(--page);
+  }
+  .tile .k { font-size: 12px; color: var(--ink-muted); }
+  .tile .v { font-size: 19px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+  /* tier gauge */
+  .gauge { margin-top: 18px; }
+  .gauge .strip { display: flex; gap: 1px; height: 14px; border-radius: 4px; overflow: hidden; }
+  .gauge .seg { flex: 1; }
+  .gauge .seg.hit { outline: 2px solid var(--ink-1); outline-offset: 1px; border-radius: 2px; }
+  .gauge .axis { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-muted); margin-top: 6px; }
+
+  /* bars */
+  .chart { margin-top: 12px; }
+  .chart .legend { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); margin-bottom: 10px; }
+  .chart .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+  .barrow { display: grid; grid-template-columns: 72px 1fr 74px; gap: 10px; align-items: center; margin-bottom: 6px; }
+  .barrow .sym { font-size: 13px; color: var(--ink-2); text-align: right; }
+  .barrow .val { font-size: 13px; color: var(--ink-1); font-variant-numeric: tabular-nums; }
+  .track { position: relative; height: 14px; }
+  .track .baseline { position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--baseline); }
+  .bar { position: absolute; left: 0; height: 6px; border-radius: 0 4px 4px 0; min-width: 2px; }
+  .bar.t { top: 0; background: var(--series-1); }
+  .bar.c { bottom: 0; background: var(--series-2); }
+  .bar.single { top: 4px; background: var(--series-1); }
+  .bar:hover { filter: brightness(1.15); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  th { text-align: left; color: var(--ink-muted); font-weight: 500; font-size: 12.5px;
+       border-bottom: 1px solid var(--grid); padding: 6px 8px; }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  td.num, th.num { text-align: right; }
+  .buy  { color: var(--good); font-weight: 600; }
+  .sell { color: var(--critical); font-weight: 600; }
+
+  .hedge-card { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 10px; background: var(--page); }
+  .hedge-card .kind { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--series-1); text-transform: uppercase; }
+  .hedge-card p { margin-top: 4px; }
+  .hedge-card .meta { color: var(--ink-2); font-size: 13px; margin-top: 6px; }
+
+  .error { background: rgba(208,59,59,0.09); border: 1px solid rgba(208,59,59,0.35);
+           color: var(--critical); border-radius: 8px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
+  .note  { background: var(--accent-wash); border-radius: 8px; padding: 10px 12px; margin: 10px 0; font-size: 13.5px; color: var(--ink-2); }
+  .spinner { color: var(--ink-muted); font-size: 14px; margin: 8px 0; }
+  .hidden { display: none !important; }
+  details.settings summary { cursor: pointer; color: var(--ink-2); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Hone</h1>
+    <p>Hedge-fund-grade risk tools for retail investors — measure your risk aversion, then optimize and hedge around it.</p>
+  </header>
+
+  <div class="card">
+    <details class="settings">
+      <summary>Data source — <b id="src-label">demo (synthetic data)</b></summary>
+      <div style="margin-top:12px">
+        <label class="field" style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="demo-mode" checked style="width:auto">
+          Demo mode (synthetic portfolio, no Alpaca account needed)
+        </label>
+        <div class="row" id="cred-row" style="opacity:0.5">
+          <label class="field"><span>Alpaca API key (paper)</span><input type="text" id="alpaca-key" placeholder="PK..." autocomplete="off"></label>
+          <label class="field"><span>Alpaca secret key</span><input type="password" id="alpaca-secret" autocomplete="off"></label>
+        </div>
+        <div class="muted">Keys are held in this page only and sent with each request; the server never stores them. Leave blank to use the server's ALPACA_API_KEY / ALPACA_SECRET_KEY environment variables.</div>
+      </div>
+    </details>
+  </div>
+
+  <nav class="steps">
+    <button data-step="questionnaire" class="active"><span class="n">1</span>Risk profile</button>
+    <button data-step="portfolio"><span class="n">2</span>Portfolio</button>
+    <button data-step="optimize"><span class="n">3</span>Optimize</button>
+    <button data-step="hedge"><span class="n">4</span>Hedge</button>
+  </nav>
+
+  <!-- ============================ 1. QUESTIONNAIRE ============================ -->
+  <section class="panel active" id="panel-questionnaire">
+    <div class="card" id="q-intro">
+      <h2>Measure your risk aversion</h2>
+      <p class="sub">30 quick choices between pairs of lotteries (3 rounds &times; 10 rows, rising stakes).
+        Pick the one you'd genuinely rather play — there are no right answers.
+        Your choices are run through a maximum-likelihood engine (CRRA utility + noise)
+        to produce your risk-aversion parameter &gamma; and your tier out of 50.</p>
+      <button class="primary" id="q-start">Start questionnaire</button>
+    </div>
+
+    <div class="card hidden" id="q-run">
+      <div class="muted" id="q-round-label"></div>
+      <div class="qprogress"><div id="q-bar"></div></div>
+      <div id="q-question"></div>
+      <div class="lottery-pair">
+        <div class="lottery" id="q-opt-a"></div>
+        <div class="lottery" id="q-opt-b"></div>
+      </div>
+      <div style="margin-top:12px"><button class="ghost" id="q-back">&larr; Back</button></div>
+    </div>
+
+    <div class="card hidden" id="q-result">
+      <h2>Your risk profile</h2>
+      <div class="hero" id="q-gamma"></div>
+      <div class="muted" id="q-gamma-sub"></div>
+      <div class="gauge">
+        <div class="strip" id="q-strip"></div>
+        <div class="axis"><span>Tier 1 · risk-seeking</span><span>Tier 50 · risk-averse</span></div>
+      </div>
+      <div class="tiles" id="q-tiles"></div>
+      <div class="note" id="q-note" style="margin-top:14px"></div>
+      <button class="ghost" id="q-redo" style="margin-top:6px">Retake questionnaire</button>
+    </div>
+  </section>
+
+  <!-- ============================== 2. PORTFOLIO ============================== -->
+  <section class="panel" id="panel-portfolio">
+    <div class="card">
+      <h2>Your portfolio</h2>
+      <p class="sub">Current weights from your Alpaca paper account (or the demo portfolio).
+        These holdings are what the covariance engine and the equilibrium prior are built from.</p>
+      <button class="primary" id="p-load">Load portfolio</button>
+      <div class="spinner hidden" id="p-spin">Loading&hellip;</div>
+      <div id="p-error"></div>
+      <div class="chart hidden" id="p-chart">
+        <div id="p-bars"></div>
+      </div>
+      <div id="p-table"></div>
+    </div>
+  </section>
+
+  <!-- ============================== 3. OPTIMIZE ============================== -->
+  <section class="panel" id="panel-optimize">
+    <div class="card">
+      <h2>Reweight around your views</h2>
+      <p class="sub">Name a stock you like, a target price, and how confident you are.
+        Black-Litterman blends the view with your current holdings; mean-variance
+        optimization then reweights using your &gamma;.</p>
+
+      <div class="row">
+        <label class="field"><span>Your &gamma; (from step 1)</span>
+          <input type="number" id="o-gamma" step="0.05" value="1.20"></label>
+        <label class="field"><span>Max weight per stock</span>
+          <input type="number" id="o-maxw" step="0.05" min="0.05" max="1" value="0.35"></label>
+        <label class="field"><span>Covariance method</span>
+          <select id="o-cov">
+            <option value="shrinkage" selected>Shrinkage (recommended)</option>
+            <option value="sample">Sample</option>
+            <option value="ewma">EWMA</option>
+          </select></label>
+      </div>
+
+      <h2 style="margin-top:10px;font-size:14px">Views</h2>
+      <div id="o-views"></div>
+      <button class="ghost" id="o-add-view" style="margin-top:8px">+ Add view</button>
+
+      <div style="margin-top:16px"><button class="primary" id="o-run">Optimize portfolio</button></div>
+      <div class="spinner hidden" id="o-spin">Optimizing&hellip;</div>
+      <div id="o-error"></div>
+    </div>
+
+    <div class="card hidden" id="o-result">
+      <h2>Optimized portfolio</h2>
+      <div class="tiles" id="o-tiles"></div>
+
+      <div id="o-returns-wrap" class="hidden">
+        <h2 style="margin-top:18px;font-size:14px">Expected returns: equilibrium vs. with your views</h2>
+        <div id="o-returns"></div>
+      </div>
+
+      <h2 style="margin-top:18px;font-size:14px">Weights: current vs. target</h2>
+      <div class="chart">
+        <div class="legend">
+          <span><i style="background:var(--series-1)"></i>Target</span>
+          <span><i style="background:var(--series-2)"></i>Current</span>
+        </div>
+        <div id="o-bars"></div>
+      </div>
+
+      <h2 style="margin-top:18px;font-size:14px">Trades to get there</h2>
+      <div id="o-trades"></div>
+
+      <div id="o-hedge"></div>
+    </div>
+  </section>
+
+  <!-- ================================ 4. HEDGE ================================ -->
+  <section class="panel" id="panel-hedge">
+    <div class="card">
+      <h2>Hedge to your risk budget</h2>
+      <p class="sub">Your &gamma; implies a maximum volatility you should tolerate (the Merton rule).
+        If your portfolio runs hotter than that, these are ways to bring it down
+        without selling your stocks.</p>
+      <div class="row">
+        <label class="field" style="max-width:200px"><span>Your &gamma;</span>
+          <input type="number" id="h-gamma" step="0.05" value="1.20"></label>
+      </div>
+      <button class="primary" id="h-run">Get hedge plan</button>
+      <div class="spinner hidden" id="h-spin">Computing&hellip;</div>
+      <div id="h-error"></div>
+      <div id="h-result"></div>
+    </div>
+  </section>
+
+  <footer class="muted" style="margin-top:24px">
+    Analytical tooling, not investment advice. Option costs are indicative Black-Scholes
+    values — use live quotes for execution. Alpaca integration targets the paper-trading API only.
+  </footer>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const fmtPct = (x, dp=1) => (x*100).toFixed(dp) + "%";
+const fmtSPct = (x, dp=1) => (x >= 0 ? "+" : "") + (x*100).toFixed(dp) + "%";
+const fmtMoney = (x) => "$" + x.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+/* ---------------------------------------------------------------- nav */
+document.querySelectorAll("nav.steps button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("nav.steps button").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll("section.panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    $("panel-" + btn.dataset.step).classList.add("active");
+  });
+});
+
+/* ------------------------------------------------------------ settings */
+$("demo-mode").addEventListener("change", () => {
+  const demo = $("demo-mode").checked;
+  $("cred-row").style.opacity = demo ? 0.5 : 1;
+  $("src-label").textContent = demo ? "demo (synthetic data)" : "Alpaca paper account";
+});
+function marketBody() {
+  const demo = $("demo-mode").checked;
+  const body = { demo };
+  if (!demo) {
+    const key = $("alpaca-key").value.trim(), sec = $("alpaca-secret").value.trim();
+    if (key || sec) body.credentials = { api_key: key || null, secret_key: sec || null };
+  }
+  return body;
+}
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  return data;
+}
+const showErr = (el, e) => { el.innerHTML = `<div class="error">${e.message || e}</div>`; };
+
+/* -------------------------------------------------------- questionnaire */
+let MENU = null, qFlat = [], qIdx = 0, qChoices = [];
+
+$("q-start").addEventListener("click", async () => {
+  try {
+    if (!MENU) MENU = await api("/api/menu");
+  } catch (e) { showErr($("q-intro"), e); return; }
+  qFlat = [];
+  MENU.forEach((round, r) => round.rows.forEach(row => qFlat.push({ r, round, row })));
+  qIdx = 0; qChoices = MENU.map(() => []);
+  $("q-intro").classList.add("hidden");
+  $("q-result").classList.add("hidden");
+  $("q-run").classList.remove("hidden");
+  renderQuestion();
+});
+$("q-redo").addEventListener("click", () => $("q-start").click());
+$("q-back").addEventListener("click", () => {
+  if (qIdx === 0) return;
+  qIdx--;
+  qChoices[qFlat[qIdx].r].pop();
+  renderQuestion();
+});
+
+function lotteryHTML(tag, lot) {
+  const pHigh = Math.round(lot.p_high * 100);
+  return `<div class="tag">OPTION ${tag}</div>
+    <div class="outcome"><span>${pHigh}% chance</span><b>${fmtMoney(lot.high)}</b></div>
+    <div class="outcome"><span>${100 - pHigh}% chance</span><b>${fmtMoney(lot.low)}</b></div>`;
+}
+function renderQuestion() {
+  const { r, round, row } = qFlat[qIdx];
+  $("q-round-label").textContent =
+    `Round ${r + 1} of ${MENU.length} — ${round.label} · question ${row.number} of ${round.rows.length}`;
+  $("q-bar").style.width = (100 * qIdx / qFlat.length) + "%";
+  $("q-question").innerHTML = `<b>Which would you rather play?</b>`;
+  $("q-opt-a").innerHTML = lotteryHTML("A", row.option_a);
+  $("q-opt-b").innerHTML = lotteryHTML("B", row.option_b);
+}
+$("q-opt-a").addEventListener("click", () => answer("A"));
+$("q-opt-b").addEventListener("click", () => answer("B"));
+document.addEventListener("keydown", (e) => {
+  if ($("q-run").classList.contains("hidden")) return;
+  if (e.key === "a" || e.key === "A") answer("A");
+  if (e.key === "b" || e.key === "B") answer("B");
+});
+async function answer(choice) {
+  qChoices[qFlat[qIdx].r].push(choice);
+  qIdx++;
+  if (qIdx < qFlat.length) { renderQuestion(); return; }
+  $("q-run").classList.add("hidden");
+  try {
+    const profile = await api("/api/questionnaire", { choices: qChoices });
+    renderProfile(profile);
+  } catch (e) {
+    $("q-intro").classList.remove("hidden");
+    showErr($("q-intro"), e);
+  }
+}
+/* ordinal blue ramp for the 50-tier gauge (light: 250->700) */
+function rampColor(t) {
+  const hex = (v) => parseInt(v, 16);
+  const lo = getComputedStyle(document.documentElement).getPropertyValue("--ramp-lo").trim();
+  const hi = getComputedStyle(document.documentElement).getPropertyValue("--ramp-hi").trim();
+  const c = (a, b) => Math.round(a + (b - a) * t);
+  const p = (s, i) => hex(s.slice(i, i + 2));
+  return `rgb(${c(p(lo,1),p(hi,1))},${c(p(lo,3),p(hi,3))},${c(p(lo,5),p(hi,5))})`;
+}
+function renderProfile(p) {
+  $("q-result").classList.remove("hidden");
+  $("q-gamma").textContent = "γ = " + p.gamma.toFixed(3);
+  $("q-gamma-sub").textContent =
+    `Tier ${p.tier.tier} of ${p.tier.num_tiers} — ${p.tier.category}`;
+  const strip = $("q-strip");
+  strip.innerHTML = "";
+  for (let i = 1; i <= p.tier.num_tiers; i++) {
+    const seg = document.createElement("div");
+    seg.className = "seg" + (i === p.tier.tier ? " hit" : "");
+    seg.style.background = rampColor((i - 1) / (p.tier.num_tiers - 1));
+    seg.title = `Tier ${i}`;
+    strip.appendChild(seg);
+  }
+  const ci = p.gamma_ci95
+    ? `${p.gamma_ci95[0].toFixed(2)} … ${p.gamma_ci95[1].toFixed(2)}` : "—";
+  $("q-tiles").innerHTML = `
+    <div class="tile"><div class="k">Switch-point bounds</div><div class="v">${p.interval[0].toFixed(2)} … ${p.interval[1].toFixed(2)}</div></div>
+    <div class="tile"><div class="k">95% CI (MLE)</div><div class="v">${ci}</div></div>
+    <div class="tile"><div class="k">Decision noise μ</div><div class="v">${p.mu.toFixed(3)}</div></div>
+    <div class="tile"><div class="k">Choices used</div><div class="v">${p.n_obs}</div></div>`;
+  const consistent = p.monotone.every(Boolean);
+  $("q-note").innerHTML =
+    (consistent ? "Your choices were internally consistent. " :
+      "Some rounds had multiple switch points — the noise parameter absorbs that inconsistency. ") +
+    `Your γ has been carried into the Optimize and Hedge tabs.`;
+  $("o-gamma").value = p.gamma.toFixed(2);
+  $("h-gamma").value = p.gamma.toFixed(2);
+}
+
+/* ------------------------------------------------------------ portfolio */
+$("p-load").addEventListener("click", async () => {
+  $("p-error").innerHTML = ""; $("p-spin").classList.remove("hidden");
+  try {
+    const data = await api("/api/portfolio", marketBody());
+    const pos = data.positions;
+    const maxW = Math.max(...pos.map(p => Math.abs(p.weight)));
+    $("p-chart").classList.remove("hidden");
+    $("p-bars").innerHTML = pos.map(p => `
+      <div class="barrow">
+        <div class="sym">${p.symbol}</div>
+        <div class="track"><div class="baseline"></div>
+          <div class="bar single" style="width:${100 * Math.abs(p.weight) / maxW}%"
+               title="${p.symbol}: ${fmtPct(p.weight)}"></div></div>
+        <div class="val">${fmtPct(p.weight)}</div>
+      </div>`).join("");
+    $("p-table").innerHTML = data.demo ? `<div class="note">Demo portfolio — synthetic holdings and history.</div>` : `
+      <table><tr><th>Symbol</th><th class="num">Qty</th><th class="num">Market value</th><th class="num">Weight</th></tr>
+      ${pos.map(p => `<tr><td>${p.symbol}</td><td class="num">${p.qty ?? ""}</td>
+        <td class="num">${p.market_value != null ? fmtMoney(p.market_value) : ""}</td>
+        <td class="num">${fmtPct(p.weight)}</td></tr>`).join("")}</table>`;
+  } catch (e) { showErr($("p-error"), e); }
+  $("p-spin").classList.add("hidden");
+});
+
+/* -------------------------------------------------------------- optimize */
+function viewRow(v = {}) {
+  const div = document.createElement("div");
+  div.className = "row view-row";
+  div.style.alignItems = "flex-end";
+  div.innerHTML = `
+    <label class="field"><span>Ticker</span><input type="text" class="v-ticker" placeholder="TSLA" value="${v.ticker || ""}"></label>
+    <label class="field"><span>Target price $</span><input type="number" class="v-target" step="0.01" min="0" value="${v.target || ""}"></label>
+    <label class="field"><span>Confidence (0–1)</span><input type="number" class="v-conf" step="0.05" min="0.05" max="1" value="${v.conf || 0.5}"></label>
+    <label class="field"><span>Horizon (days)</span><input type="number" class="v-days" step="1" min="7" value="${v.days || 365}"></label>
+    <button class="ghost v-del" style="margin-bottom:10px">✕</button>`;
+  div.querySelector(".v-del").addEventListener("click", () => div.remove());
+  return div;
+}
+$("o-add-view").addEventListener("click", () => $("o-views").appendChild(viewRow()));
+$("o-views").appendChild(viewRow({ ticker: "TSLA" }));
+
+function collectViews() {
+  return [...document.querySelectorAll(".view-row")].map(row => ({
+    ticker: row.querySelector(".v-ticker").value.trim().toUpperCase(),
+    target_price: parseFloat(row.querySelector(".v-target").value),
+    confidence: parseFloat(row.querySelector(".v-conf").value),
+    horizon_days: parseFloat(row.querySelector(".v-days").value),
+  })).filter(v => v.ticker && v.target_price > 0);
+}
+
+$("o-run").addEventListener("click", async () => {
+  $("o-error").innerHTML = ""; $("o-spin").classList.remove("hidden");
+  $("o-result").classList.add("hidden");
+  try {
+    const body = Object.assign(marketBody(), {
+      gamma: parseFloat($("o-gamma").value),
+      views: collectViews(),
+      cov_method: $("o-cov").value,
+      max_weight: parseFloat($("o-maxw").value) || null,
+    });
+    const r = await api("/api/optimize", body);
+    renderOptimize(r);
+  } catch (e) { showErr($("o-error"), e); }
+  $("o-spin").classList.add("hidden");
+});
+
+function renderOptimize(r) {
+  $("o-result").classList.remove("hidden");
+  $("o-tiles").innerHTML = `
+    <div class="tile"><div class="k">Risk tier</div><div class="v">${r.tier.tier}/${r.tier.num_tiers}</div></div>
+    <div class="tile"><div class="k">Expected return</div><div class="v">${fmtSPct(r.expected_return)}</div></div>
+    <div class="tile"><div class="k">Volatility</div><div class="v">${fmtPct(r.volatility)}</div></div>
+    <div class="tile"><div class="k">Certainty equivalent</div><div class="v">${fmtSPct(r.utility)}</div></div>`;
+
+  if (r.returns) {
+    $("o-returns-wrap").classList.remove("hidden");
+    $("o-returns").innerHTML = `
+      ${r.views.map(v => `<div class="note">${v.description}</div>`).join("")}
+      <table><tr><th>Asset</th><th class="num">Equilibrium</th><th class="num">With views</th><th class="num">Tilt</th></tr>
+      ${r.returns.map(x => `<tr><td>${x.symbol}</td>
+        <td class="num">${fmtSPct(x.prior)}</td><td class="num">${fmtSPct(x.posterior)}</td>
+        <td class="num" style="color:${x.tilt >= 0 ? 'var(--good)' : 'var(--critical)'}">${fmtSPct(x.tilt)}</td></tr>`).join("")}
+      </table>`;
+  } else {
+    $("o-returns-wrap").classList.add("hidden");
+  }
+
+  const maxW = Math.max(...r.weights.map(w => Math.max(w.current, w.target)));
+  $("o-bars").innerHTML = r.weights.map(w => `
+    <div class="barrow">
+      <div class="sym">${w.symbol}</div>
+      <div class="track"><div class="baseline"></div>
+        <div class="bar t" style="width:${100 * Math.max(w.target, 0) / maxW}%"
+             title="${w.symbol} target: ${fmtPct(w.target)}"></div>
+        <div class="bar c" style="width:${100 * Math.max(w.current, 0) / maxW}%"
+             title="${w.symbol} current: ${fmtPct(w.current)}"></div></div>
+      <div class="val">${fmtPct(w.target)}</div>
+    </div>`).join("");
+
+  const trades = r.weights.filter(w => Math.abs(w.trade) >= 0.0005)
+    .sort((a, b) => a.trade - b.trade);
+  $("o-trades").innerHTML = trades.length === 0
+    ? `<div class="note">No trades needed — you're already at the target.</div>`
+    : `<table><tr><th>Action</th><th>Symbol</th><th class="num">Amount</th><th class="num">Current → target</th></tr>
+      ${trades.map(t => `<tr>
+        <td class="${t.trade > 0 ? "buy" : "sell"}">${t.trade > 0 ? "BUY" : "SELL"}</td>
+        <td>${t.symbol}</td><td class="num">${fmtPct(Math.abs(t.trade))}</td>
+        <td class="num">${fmtPct(t.current)} → ${fmtPct(t.target)}</td></tr>`).join("")}</table>`;
+
+  $("o-hedge").innerHTML = `<h2 style="margin-top:18px;font-size:14px">Hedge check</h2>` + hedgeHTML(r.hedge_plan);
+}
+
+/* ---------------------------------------------------------------- hedge */
+function hedgeHTML(plan) {
+  const head = `<div class="tiles">
+    <div class="tile"><div class="k">Current volatility</div><div class="v">${fmtPct(plan.current_volatility)}</div></div>
+    <div class="tile"><div class="k">Your risk budget</div><div class="v">${fmtPct(plan.target_volatility)}</div></div>
+  </div>`;
+  if (!plan.needs_hedge)
+    return head + `<div class="note" style="margin-top:10px">Your portfolio's volatility is already within your risk budget — no hedge required.</div>`;
+  return head + plan.suggestions.map(sug => `
+    <div class="hedge-card">
+      <div class="kind">${sug.kind.replace("_", " ")}</div>
+      <p>${sug.description}</p>
+      <div class="meta">
+        ${sug.hedged_volatility != null ? `Hedged volatility ≈ ${fmtPct(sug.hedged_volatility)} · ` : ""}
+        Est. cost ≈ ${fmtPct(sug.est_annual_cost_fraction)} of portfolio per year
+      </div>
+    </div>`).join("");
+}
+$("h-run").addEventListener("click", async () => {
+  $("h-error").innerHTML = ""; $("h-spin").classList.remove("hidden");
+  $("h-result").innerHTML = "";
+  try {
+    const body = Object.assign(marketBody(), { gamma: parseFloat($("h-gamma").value) });
+    const plan = await api("/api/hedge", body);
+    $("h-result").innerHTML = hedgeHTML(plan);
+  } catch (e) { showErr($("h-error"), e); }
+  $("h-spin").classList.add("hidden");
+});
+</script>
+</body>
+</html>

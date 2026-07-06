@@ -210,7 +210,25 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("demo", help="full pipeline on synthetic data")
     d.set_defaults(func=cmd_demo)
 
+    w = sub.add_parser("serve", help="run the web app (UI + JSON API)")
+    w.add_argument("--host", default="127.0.0.1")
+    w.add_argument("--port", type=int, default=8000)
+    w.set_defaults(func=cmd_serve)
+
     return parser
+
+
+def cmd_serve(args) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        raise SystemExit(
+            "error: web dependencies missing — install with pip install 'hone[web]' "
+            "or pip install fastapi 'uvicorn[standard]'"
+        )
+    print(f"Hone web app on http://{args.host}:{args.port}")
+    uvicorn.run("hone.web.app:app", host=args.host, port=args.port)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

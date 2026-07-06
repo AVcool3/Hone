@@ -16,13 +16,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+dev = ["pytest>=8.0", "fastapi>=0.110", "uvicorn[standard]>=0.29", "httpx>=0.27"]
 
 [project.scripts]
 hone = "hone.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["hone*"]
+
+[tool.setuptools.package-data]
+"hone.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

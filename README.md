@@ -22,10 +22,29 @@ Hedge-fund-grade risk tools for retail investors, in three parts:
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest            # 64 tests, no network needed
+python -m pytest            # full test suite, no network needed
 ```
 
-## Quick start
+## Web app
+
+Everything below is also available in the browser:
+
+```bash
+python -m hone serve                 # http://127.0.0.1:8000
+```
+
+The single-page app walks through the same four steps: the 30-question
+risk questionnaire (with the 50-tier gauge), your portfolio, the
+optimize tab (views + Black-Litterman + MVO with a current-vs-target
+weight chart and trade list), and the hedge tab. A **demo mode** toggle
+runs the whole flow on synthetic data with no Alpaca account; switch it
+off to use your paper account — keys can be typed into the page
+(held in-page, sent per request, never stored server-side) or left
+blank to use the server's `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`
+environment variables. The JSON API is documented at `/docs`
+(OpenAPI) when the server is running.
+
+## Quick start (CLI)
 
 ```bash
 # Full pipeline on synthetic data (no API keys needed)
@@ -113,8 +132,9 @@ hone/
 ├── market_data/     # Part 2: Alpaca client, covariance (internal)
 ├── optimization/    # Part 3: MVO, views, Black-Litterman
 ├── hedging/         # Part 3: shorts, puts, collars, Black-Scholes
+├── web/             # FastAPI JSON API + single-page UI
 ├── pipeline.py      # end-to-end flow
-└── cli.py           # `python -m hone ...`
+└── cli.py           # `python -m hone ...` (incl. `serve`)
 ```
 
 ## Disclaimers

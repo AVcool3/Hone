@@ -223,7 +223,8 @@ function currentStep() {
 }
 function guard(step) {
   // send the user back to the earliest step whose prerequisites are missing
-  const needGamma = ["profile", "portfolio", "views", "optimize", "hedge", "done"];
+  // (portfolio is allowed without gamma: it can *derive* gamma from holdings)
+  const needGamma = ["profile", "views", "optimize", "hedge", "done"];
   if (needGamma.includes(step) && typeof S.gamma !== "number") return "start";
   if ((step === "optimize" || step === "hedge" || step === "done") && !RUNTIME.optimize) {
     return typeof S.gamma === "number" ? "views" : "start";
@@ -306,7 +307,8 @@ PAGES.start = () => {
     your convictions, and how to hedge what you can't stomach.</p>
     <p class="lead">Four stops: a <b>30-choice questionnaire</b> → your <b>risk profile</b>
     (1 of 50 tiers) → your <b>portfolio</b>, rebalanced around <b>your views</b> →
-    a <b>hedge plan</b> sized to your number.</p>
+    a <b>hedge plan</b> sized to your number. In a hurry? You can also let Hone
+    <b>read a γ straight out of your current portfolio</b> and skip the questionnaire.</p>
 
     <h2>Data source</h2>
     <label class="field" style="display:flex;align-items:center;gap:8px">
@@ -321,11 +323,16 @@ PAGES.start = () => {
     </div>
     <div class="muted">Keys stay in this browser and are sent only with your requests — the server never stores them.
     Leave blank to use keys configured on the server, if any.</div>
-    ${navRow(null, "Begin →", null, `<button class="ghost" id="skip-quiz">I already know my γ</button>`)}
+    ${navRow(null, "Begin →", null,
+      `<button class="ghost" id="from-portfolio">Read my γ from my portfolio</button>
+       <button class="ghost" id="skip-quiz">I already know my γ</button>`)}
   </div>`;
   $id("demo-mode").onchange = (e) => { S.demo = e.target.checked; save(); $id("cred-row").style.opacity = e.target.checked ? 0.45 : 1; };
   const grab = () => { S.alpacaKey = $id("alpaca-key").value.trim(); S.alpacaSecret = $id("alpaca-secret").value.trim(); S.demo = $id("demo-mode").checked; save(); };
   $id("next-btn").onclick = () => { grab(); go("quiz"); };
+  $id("from-portfolio").onclick = () => {
+    grab(); S.gamma = null; S.profile = null; save(); go("portfolio");
+  };
   $id("skip-quiz").onclick = () => {
     grab();
     const v = prompt("Enter your risk-aversion γ (e.g. 1.2 — from a previous Hone run):");
@@ -469,6 +476,7 @@ function renderPortfolio(data) {
 
   let insight = "";
   const a = data.analysis;
+  const deriving = typeof S.gamma !== "number";  // portfolio-derived gamma path
   if (a) {
     const markers = [{tier: a.revealed_tier.tier, label: "your portfolio", style: "b"}];
     if (a.stated_tier) markers.push({tier: a.stated_tier.tier, label: "your answers", style: "a"});
@@ -478,6 +486,8 @@ function renderPortfolio(data) {
       if (Math.abs(gap) <= 4) verdict = "Your portfolio's risk is roughly in line with your stated preferences. The next steps will fine-tune it.";
       else if (gap > 0) verdict = `<b>Gap detected:</b> your answers say Tier ${a.stated_tier.tier} (${a.stated_tier.category.toLowerCase()}), but your holdings are invested like Tier ${a.revealed_tier.tier} — <b>${gap} tiers riskier than you say you can stomach</b>. The rebalance and hedge steps will close that gap.`;
       else verdict = `<b>Gap detected:</b> your answers say Tier ${a.stated_tier.tier}, but your holdings are invested like Tier ${a.revealed_tier.tier} — <b>${-gap} tiers more conservative than your stated tolerance</b>. You may be leaving expected return on the table.`;
+    } else if (deriving) {
+      verdict = `Your holdings imply <b>γ ≈ ${a.revealed_gamma.toFixed(2)} — Tier ${a.revealed_tier.tier} of 50</b> (${a.revealed_tier.category.toLowerCase()}). You can adopt this as your working risk parameter below, or take the 5-minute questionnaire for a preference-based measurement (recommended: the portfolio only shows how you're positioned, not how much risk you can actually stomach).`;
     }
     insight = `
     <h2>Stated vs. revealed risk appetite</h2>
@@ -492,13 +502,32 @@ function renderPortfolio(data) {
     <div class="muted">*Assumes a ${fmtPct(a.market_premium_assumption, 0)}/yr market risk premium; a positioning diagnostic, not a preference measurement.</div>`;
   }
 
+  const nextLabel = deriving && a
+    ? `Use γ = ${a.revealed_gamma.toFixed(2)} → add views`
+    : "Add my views →";
+  const extra = deriving && a
+    ? `<button class="ghost" id="take-quiz">Take the questionnaire instead</button>`
+    : (a && a.stated_tier && Math.abs(a.stated_tier.tier - a.revealed_tier.tier) > 4
+        ? `<button class="ghost" id="adopt-revealed">Use revealed γ (${a.revealed_gamma.toFixed(2)}) instead</button>`
+        : "");
   $id("p-body").innerHTML = `
     ${data.portfolio_value ? `<div class="tiles"><div class="tile"><div class="k">Portfolio value</div><div class="v">${fmtMoney(data.portfolio_value, 0)}</div><div class="s">${data.demo ? "demo account" : "Alpaca paper account"}</div></div></div>` : ""}
     <h2>Current weights</h2>
     <div class="chart">${bars}</div>
     ${insight}
-    ${navRow(S.profile ? "profile" : "start", "Add my views →")}`;
-  $id("next-btn").onclick = () => go("views");
+    ${navRow(S.profile ? "profile" : "start", nextLabel, null, extra)}`;
+  $id("next-btn").onclick = () => {
+    if (deriving && a) { S.gamma = a.revealed_gamma; S.profile = null; save(); }
+    go("views");
+  };
+  const quizBtn = $id("take-quiz");
+  if (quizBtn) quizBtn.onclick = () => go("quiz");
+  const adoptBtn = $id("adopt-revealed");
+  if (adoptBtn) adoptBtn.onclick = () => {
+    S.gamma = a.revealed_gamma; save();
+    RUNTIME.optimize = null;
+    go("views");
+  };
 }
 
 /* ------------------------------- 5. views -------------------------------- */

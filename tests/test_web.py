@@ -126,6 +126,57 @@ class TestOptimize:
         assert res.status_code == 422
 
 
+class TestInsightFeatures:
+    def test_portfolio_analysis_reveals_gamma(self, client):
+        res = client.post(
+            "/api/portfolio",
+            json={"demo": True, "analyze": True, "stated_gamma": 2.5},
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["portfolio_value"] == 25000.0
+        a = body["analysis"]
+        assert a["volatility"] > 0
+        assert a["revealed_gamma"] > 0
+        assert 1 <= a["revealed_tier"]["tier"] <= 50
+        assert a["stated_tier"]["tier"] == 36  # gamma 2.5 -> tier 36
+        assert a["market_premium_assumption"] == 0.05
+
+    def test_portfolio_without_analyze_has_no_analysis(self, client):
+        res = client.post("/api/portfolio", json={"demo": True})
+        assert res.json()["analysis"] is None
+
+    def test_optimize_returns_trade_reasons(self, client):
+        res = client.post(
+            "/api/optimize",
+            json={
+                "gamma": 1.2,
+                "demo": True,
+                "views": [{"ticker": "TSLA", "target_price": 250, "confidence": 0.6}],
+            },
+        )
+        body = res.json()
+        traded = [w for w in body["weights"] if abs(w["trade"]) > 1e-3]
+        assert traded and all(w["reason"] for w in traded)
+        buys = [w for w in traded if w["trade"] > 0]
+        assert all(w["reason"].startswith("Buy") for w in buys)
+
+    def test_hedge_plan_has_dollar_scenarios(self, client):
+        res = client.post(
+            "/api/hedge",
+            json={"gamma": 6.0, "demo": True, "portfolio_value": 100000},
+        )
+        plan = res.json()
+        assert plan["portfolio_value"] == 100000
+        assert plan["tolerable_annual_loss_usd"] > 0
+        assert plan["current_annual_loss_usd"] > plan["tolerable_annual_loss_usd"]
+        assert len(plan["scenarios"]) == 3
+        crisis = plan["scenarios"][0]
+        assert crisis["loss_usd"] < 0  # a loss
+        # the short hedge reduces the scenario loss
+        assert crisis["hedged_loss_usd"] > crisis["loss_usd"]
+
+
 class TestDeploymentHardening:
     def test_health_endpoint(self, client):
         res = client.get("/api/health")

@@ -68,6 +68,9 @@ class AlpacaCredentials(BaseModel):
 class PortfolioRequest(BaseModel):
     demo: bool = False
     credentials: AlpacaCredentials | None = None
+    analyze: bool = False  # also compute vol / revealed gamma (needs history)
+    stated_gamma: float | None = None  # questionnaire gamma, for comparison
+    lookback_days: int = 504
 
 
 class PositionOut(BaseModel):
@@ -77,9 +80,21 @@ class PositionOut(BaseModel):
     qty: float | None = None
 
 
+class PortfolioAnalysis(BaseModel):
+    volatility: float
+    beta: float
+    revealed_gamma: float
+    revealed_tier: "TierInfo"
+    stated_gamma: float | None = None
+    stated_tier: "TierInfo | None" = None
+    market_premium_assumption: float
+
+
 class PortfolioResponse(BaseModel):
     demo: bool
     positions: list[PositionOut]
+    portfolio_value: float | None = None
+    analysis: PortfolioAnalysis | None = None
 
 
 # ---------------------------------------------------------------- optimize
@@ -100,6 +115,7 @@ class OptimizeRequest(BaseModel):
     max_weight: float | None = 0.35
     lookback_days: int = 504
     hedge_instrument: str = "SPY"
+    portfolio_value: float | None = None  # override; else account equity / demo default
 
 
 class ReturnRow(BaseModel):
@@ -114,6 +130,7 @@ class WeightRow(BaseModel):
     current: float
     target: float
     trade: float
+    reason: str | None = None
 
 
 class HedgeSuggestionOut(BaseModel):
@@ -126,12 +143,25 @@ class HedgeSuggestionOut(BaseModel):
     details: dict
 
 
+class StressScenarioOut(BaseModel):
+    name: str
+    market_shock: float
+    loss_fraction: float
+    loss_usd: float
+    hedged_loss_fraction: float | None = None
+    hedged_loss_usd: float | None = None
+
+
 class HedgePlanOut(BaseModel):
     gamma: float
     current_volatility: float
     target_volatility: float
     needs_hedge: bool
     suggestions: list[HedgeSuggestionOut]
+    portfolio_value: float | None = None
+    tolerable_annual_loss_usd: float | None = None
+    current_annual_loss_usd: float | None = None
+    scenarios: list[StressScenarioOut] = []
 
 
 class OptimizeResponse(BaseModel):
@@ -154,3 +184,4 @@ class HedgeRequest(BaseModel):
     cov_method: str = "shrinkage"
     lookback_days: int = 504
     hedge_instrument: str = "SPY"
+    portfolio_value: float | None = None

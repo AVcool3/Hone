@@ -85,6 +85,7 @@ def rebalance(
     hedge_instrument: str = "SPY",
     hedge_spot: float = 100.0,
     risk_free: float = 0.04,
+    portfolio_value: float | None = None,
 ) -> RebalanceReport:
     """Run steps 2-4 of the pipeline.
 
@@ -142,6 +143,7 @@ def rebalance(
         hedge_instrument=hedge_instrument,
         hedge_spot=hedge_spot,
         risk_free=risk_free,
+        portfolio_value=portfolio_value,
     )
 
     return RebalanceReport(

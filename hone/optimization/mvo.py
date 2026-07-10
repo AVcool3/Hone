@@ -150,6 +150,51 @@ def mvo_weights(
     )
 
 
+def trade_reasons(
+    target: pd.Series,
+    current: pd.Series,
+    mu: pd.Series,
+    sigma: pd.DataFrame,
+    gamma: float,
+) -> dict[str, str]:
+    """Plain-English rationale per trade.
+
+    At the optimum, an asset earns its weight when its expected return
+    covers its marginal risk contribution gamma * (Sigma w)_i. Comparing
+    the two, in the user's own units, explains each buy/sell.
+    """
+    gamma_eff = max(float(gamma), MIN_GAMMA)
+    assets = list(mu.index)
+    w = target.reindex(assets).fillna(0.0).to_numpy()
+    marginal_risk = gamma_eff * (sigma.reindex(index=assets, columns=assets).to_numpy() @ w)
+    reasons: dict[str, str] = {}
+    for i, sym in enumerate(assets):
+        trade = float(target.get(sym, 0.0) - current.get(sym, 0.0))
+        ret = float(mu[sym])
+        risk_cost = float(marginal_risk[i])
+        if abs(trade) < 1e-4:
+            reasons[sym] = "Holding steady — current weight is already near optimal."
+        elif trade > 0:
+            reasons[sym] = (
+                f"Buy: expected return ({ret:+.1%}/yr) exceeds the risk it "
+                f"adds to your portfolio at your risk tier ({risk_cost:.1%}/yr "
+                "equivalent) — it earns its place."
+            )
+        elif float(target.get(sym, 0.0)) <= 1e-8:
+            reasons[sym] = (
+                f"Sell all: at your risk tier its risk contribution "
+                f"({risk_cost:.1%}/yr equivalent) is not covered by its "
+                f"expected return ({ret:+.1%}/yr)."
+            )
+        else:
+            reasons[sym] = (
+                f"Trim: keeps some exposure to its {ret:+.1%}/yr expected "
+                "return, but a smaller position matches how much of its "
+                "volatility your tier can carry."
+            )
+    return reasons
+
+
 def efficient_frontier(
     mu: pd.Series,
     sigma: pd.DataFrame,

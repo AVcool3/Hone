@@ -37,7 +37,10 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
+from ..hedging.hedge import portfolio_beta, portfolio_volatility, revealed_gamma
 from ..market_data.alpaca_client import AlpacaClient, AlpacaError
+from ..market_data.covariance import portfolio_covariance
+from ..optimization.mvo import trade_reasons
 from ..optimization.views import View
 from ..pipeline import rebalance, synthetic_universe
 from ..risk_profile.holt_laury import DEFAULT_SCALES, standard_menu
@@ -46,6 +49,12 @@ from ..risk_profile.tiers import NUM_TIERS, gamma_to_tier
 from . import schemas as s
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+#: Notional used for dollar framing in demo mode.
+DEMO_PORTFOLIO_VALUE = 25_000.0
+
+#: Assumed annual market excess return for the revealed-gamma diagnostic.
+MARKET_PREMIUM = 0.05
 
 
 def _tier_info(gamma: float) -> s.TierInfo:
@@ -190,18 +199,52 @@ def create_app() -> FastAPI:
         )
 
     # ----------------------------------------------------------- portfolio
+    def _analysis(
+        prices: pd.DataFrame,
+        weights: pd.Series,
+        stated_gamma: float | None,
+        hedge_instrument: str = "SPY",
+    ) -> s.PortfolioAnalysis:
+        report = portfolio_covariance(prices)
+        sigma = report.covariance
+        vol = portfolio_volatility(weights, sigma)
+        beta = portfolio_beta(weights, sigma, hedge_instrument)
+        rev = revealed_gamma(vol, market_premium=MARKET_PREMIUM)
+        return s.PortfolioAnalysis(
+            volatility=vol,
+            beta=beta,
+            revealed_gamma=rev,
+            revealed_tier=_tier_info(rev),
+            stated_gamma=stated_gamma,
+            stated_tier=_tier_info(stated_gamma) if stated_gamma is not None else None,
+            market_premium_assumption=MARKET_PREMIUM,
+        )
+
     @app.post("/api/portfolio", response_model=s.PortfolioResponse)
     def get_portfolio(req: s.PortfolioRequest) -> s.PortfolioResponse:
         if req.demo:
-            _, weights = synthetic_universe()
+            prices, weights = synthetic_universe()
             positions = [
                 s.PositionOut(symbol=sym, weight=float(w))
                 for sym, w in weights.sort_values(ascending=False).items()
             ]
-            return s.PortfolioResponse(demo=True, positions=positions)
+            analysis = (
+                _analysis(prices, weights, req.stated_gamma) if req.analyze else None
+            )
+            return s.PortfolioResponse(
+                demo=True,
+                positions=positions,
+                portfolio_value=DEMO_PORTFOLIO_VALUE,
+                analysis=analysis,
+            )
         client = _client(req.credentials)
         try:
             raw = client.get_positions()
+            equity = None
+            try:
+                equity = float(client.get_account().get("equity") or 0) or None
+            except (AlpacaError, ValueError, TypeError):
+                pass
         except AlpacaError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
         gross = sum(abs(p.market_value) for p in raw) or 1.0
@@ -214,7 +257,22 @@ def create_app() -> FastAPI:
             )
             for p in sorted(raw, key=lambda p: -abs(p.market_value))
         ]
-        return s.PortfolioResponse(demo=False, positions=positions)
+        analysis = None
+        if req.analyze and positions:
+            weights = pd.Series({p.symbol: p.weight for p in positions})
+            prices, _ = _load_market(
+                False, req.credentials, [], "SPY", req.lookback_days
+            )
+            try:
+                analysis = _analysis(prices, weights, req.stated_gamma)
+            except ValueError as exc:  # too little history etc.
+                raise HTTPException(status_code=422, detail=str(exc))
+        return s.PortfolioResponse(
+            demo=False,
+            positions=positions,
+            portfolio_value=equity,
+            analysis=analysis,
+        )
 
     # ------------------------------------------------------------ optimize
     @app.post("/api/optimize", response_model=s.OptimizeResponse)
@@ -242,6 +300,18 @@ def create_app() -> FastAPI:
                     horizon_days=v.horizon_days,
                 )
             )
+        value = req.portfolio_value
+        if value is None:
+            if req.demo:
+                value = DEMO_PORTFOLIO_VALUE
+            else:
+                try:
+                    value = float(
+                        _client(req.credentials).get_account().get("equity") or 0
+                    ) or None
+                except (AlpacaError, ValueError, TypeError, HTTPException):
+                    value = None
+
         try:
             report = rebalance(
                 prices,
@@ -255,6 +325,7 @@ def create_app() -> FastAPI:
                 hedge_spot=float(prices[req.hedge_instrument].iloc[-1])
                 if req.hedge_instrument in prices.columns
                 else 100.0,
+                portfolio_value=value,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
@@ -272,12 +343,25 @@ def create_app() -> FastAPI:
                 for sym in bl.posterior_mu.index
             ]
         trades = report.trade_list()
+        mu_used = (
+            report.black_litterman.posterior_mu
+            if report.black_litterman is not None
+            else report.covariance.mean_returns.reindex(report.optimized.weights.index)
+        )
+        reasons = trade_reasons(
+            report.optimized.weights,
+            report.current_weights,
+            mu_used,
+            report.covariance.covariance,
+            req.gamma,
+        )
         weight_rows = [
             s.WeightRow(
                 symbol=sym,
                 current=float(row["current"]),
                 target=float(row["target"]),
                 trade=float(row["trade"]),
+                reason=reasons.get(sym),
             )
             for sym, row in trades.sort_values("target", ascending=False).iterrows()
         ]
@@ -300,6 +384,20 @@ def create_app() -> FastAPI:
                 current_volatility=plan.current_volatility,
                 target_volatility=plan.target_volatility,
                 needs_hedge=plan.needs_hedge,
+                portfolio_value=plan.portfolio_value,
+                tolerable_annual_loss_usd=plan.tolerable_annual_loss_usd,
+                current_annual_loss_usd=plan.current_annual_loss_usd,
+                scenarios=[
+                    s.StressScenarioOut(
+                        name=x.name,
+                        market_shock=x.market_shock,
+                        loss_fraction=x.loss_fraction,
+                        loss_usd=x.loss_usd,
+                        hedged_loss_fraction=x.hedged_loss_fraction,
+                        hedged_loss_usd=x.hedged_loss_usd,
+                    )
+                    for x in plan.scenarios
+                ],
                 suggestions=[
                     s.HedgeSuggestionOut(
                         kind=x.kind,
@@ -327,6 +425,7 @@ def create_app() -> FastAPI:
                 cov_method=req.cov_method,
                 lookback_days=req.lookback_days,
                 hedge_instrument=req.hedge_instrument,
+                portfolio_value=req.portfolio_value,
             )
         )
         return opt.hedge_plan

@@ -82,6 +82,96 @@ class HedgeSuggestion:
         return "\n".join(lines)
 
 
+#: (label, peak-to-trough market shock) used for dollar stress tests.
+STRESS_SCENARIOS = [
+    ("2008-style financial crisis", -0.55),
+    ("2020-style pandemic crash", -0.34),
+    ("2022-style rate shock", -0.25),
+]
+
+
+@dataclass
+class StressResult:
+    name: str
+    market_shock: float
+    loss_fraction: float  # unhedged portfolio loss (fraction of value)
+    loss_usd: float
+    hedged_loss_fraction: float | None = None  # with the short hedge on
+    hedged_loss_usd: float | None = None
+
+
+def portfolio_beta(
+    weights: pd.Series,
+    sigma: pd.DataFrame,
+    hedge_instrument: str = "SPY",
+    fallback_hedge_vol: float = 0.18,
+    fallback_correlation: float = 0.85,
+) -> float:
+    """Beta of the portfolio to the hedge instrument (market proxy).
+
+    Uses the covariance matrix exactly when the instrument is in it;
+    otherwise approximates via an assumed correlation and market vol.
+    """
+    port_vol = portfolio_volatility(weights, sigma)
+    if hedge_instrument in sigma.index:
+        w = weights.reindex(sigma.index).fillna(0.0).to_numpy()
+        cov_ph = float(w @ sigma[hedge_instrument].to_numpy())
+        var_h = float(sigma.loc[hedge_instrument, hedge_instrument])
+        return cov_ph / var_h if var_h > 0 else 0.0
+    return fallback_correlation * port_vol / fallback_hedge_vol
+
+
+def stress_scenarios(
+    weights: pd.Series,
+    sigma: pd.DataFrame,
+    portfolio_value: float,
+    hedge_instrument: str = "SPY",
+    hedge_fraction: float = 0.0,
+) -> list[StressResult]:
+    """Dollar losses under historical-style market shocks.
+
+    First-order (beta) approximation: portfolio loss = beta x shock.
+    With a short hedge of notional fraction h on the market proxy, the
+    hedged beta is (beta - h).
+    """
+    beta = portfolio_beta(weights, sigma, hedge_instrument)
+    results = []
+    for name, shock in STRESS_SCENARIOS:
+        loss = max(beta, 0.0) * shock
+        hedged = None
+        if hedge_fraction > 0:
+            hedged = max(beta - hedge_fraction, 0.0) * shock
+        results.append(
+            StressResult(
+                name=name,
+                market_shock=shock,
+                loss_fraction=loss,
+                loss_usd=loss * portfolio_value,
+                hedged_loss_fraction=hedged,
+                hedged_loss_usd=None if hedged is None else hedged * portfolio_value,
+            )
+        )
+    return results
+
+
+def revealed_gamma(
+    portfolio_vol: float,
+    market_premium: float = 0.05,
+) -> float:
+    """Risk aversion implied by *holding* this portfolio fully invested.
+
+    Inverts the Merton rule at alpha = 1: an investor for whom this
+    portfolio is optimal has gamma = premium / sigma_p^2. The market
+    premium is an assumption (default 5%/yr excess return); the output
+    is a positioning diagnostic, not a preference measurement — compare
+    it against the questionnaire's elicited gamma to reveal the gap
+    between stated and revealed risk appetite.
+    """
+    if portfolio_vol <= 0:
+        raise ValueError("portfolio volatility must be positive")
+    return market_premium / (portfolio_vol**2)
+
+
 @dataclass
 class HedgePlan:
     gamma: float
@@ -89,6 +179,10 @@ class HedgePlan:
     target_volatility: float
     suggestions: list[HedgeSuggestion]
     needs_hedge: bool
+    portfolio_value: float | None = None
+    tolerable_annual_loss_usd: float | None = None  # ~95% VaR at target vol
+    current_annual_loss_usd: float | None = None  # same measure, unhedged
+    scenarios: list[StressResult] = field(default_factory=list)
 
     def summary(self) -> str:
         lines = [
@@ -254,6 +348,7 @@ def suggest_hedges(
     hedge_spot: float = 100.0,
     implied_vol: float | None = None,
     risk_free: float = DEFAULT_RISK_FREE,
+    portfolio_value: float | None = None,
 ) -> HedgePlan:
     """Full hedge plan for a portfolio and a risk-aversion parameter.
 
@@ -299,10 +394,32 @@ def suggest_hedges(
             )
         )
 
+    tolerable_loss = current_loss = None
+    scenarios: list[StressResult] = []
+    if portfolio_value is not None and portfolio_value > 0:
+        # ~95% one-year VaR at the target and current volatility levels.
+        tolerable_loss = 1.65 * target_vol * portfolio_value
+        current_loss = 1.65 * port_vol * portfolio_value
+        short_fraction = next(
+            (s.hedge_notional_fraction for s in suggestions if s.kind == "short"),
+            0.0,
+        )
+        scenarios = stress_scenarios(
+            weights,
+            sigma,
+            portfolio_value,
+            hedge_instrument=hedge_instrument,
+            hedge_fraction=short_fraction,
+        )
+
     return HedgePlan(
         gamma=gamma,
         current_volatility=port_vol,
         target_volatility=target_vol,
         suggestions=suggestions,
         needs_hedge=needs_hedge,
+        portfolio_value=portfolio_value,
+        tolerable_annual_loss_usd=tolerable_loss,
+        current_annual_loss_usd=current_loss,
+        scenarios=scenarios,
     )

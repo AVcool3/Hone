@@ -137,6 +137,67 @@ hone/
 └── cli.py           # `python -m hone ...` (incl. `serve`)
 ```
 
+## Hosting it on a domain
+
+The app ships with a `Dockerfile` and configs for the two easiest hosts.
+Two environment variables control the deployment posture:
+
+| Variable | Effect |
+|---|---|
+| `HONE_PUBLIC=1` | The server refuses to use its own `ALPACA_*` env keys — every visitor must enter their own keys in the page. **Set this on anything strangers can reach** (the Dockerfile sets it by default). |
+| `HONE_ACCESS_PASSWORD` | When set, the whole site sits behind HTTP Basic auth with this password (any username). Use it for a private personal deployment. |
+
+`/api/health` is always open for platform health checks.
+
+### Option A — Render (easiest, free tier, ~10 minutes)
+
+1. Push this repo to GitHub (already done if you're reading this there).
+2. At [render.com](https://render.com): **New + → Blueprint**, pick this
+   repo — it reads `render.yaml` and builds the Docker image.
+3. You immediately get `https://hone-XXXX.onrender.com` with TLS.
+4. Custom domain: service **Settings → Custom Domains → Add**, enter
+   `yourdomain.com`. Render shows you the DNS records to create at your
+   registrar: a `CNAME` from `www` to your onrender hostname (and an
+   `A`/`ALIAS` record for the apex). Certificates are provisioned
+   automatically once DNS propagates.
+
+### Option B — Fly.io
+
+```bash
+fly launch --copy-config --no-deploy    # uses fly.toml
+fly deploy
+fly certs add yourdomain.com            # prints the DNS records to add
+```
+
+### Option C — your own VPS (full control)
+
+```bash
+docker build -t hone . && docker run -d -p 127.0.0.1:8000:8000 hone
+```
+
+Then put [Caddy](https://caddyserver.com) in front for automatic HTTPS —
+a 2-line `Caddyfile`:
+
+```
+yourdomain.com {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+and point your domain's `A` record at the server's IP.
+
+### Deployment posture
+
+- **Public site** (default in the Dockerfile): keep `HONE_PUBLIC=1`, do
+  NOT set `ALPACA_*` on the server. Visitors bring their own paper keys,
+  which are sent per request and never stored.
+- **Personal site**: set `HONE_ACCESS_PASSWORD`, optionally set your
+  `ALPACA_*` keys as server env vars, and `HONE_PUBLIC=0` so the page
+  works without typing keys.
+- There are no user accounts and no server-side storage — every request
+  is stateless. If you want saved profiles/portfolios per user, that's
+  the next build step.
+
 ## Disclaimers
 
 This is analytical tooling, not investment advice. Option costs are

@@ -126,6 +126,38 @@ class TestOptimize:
         assert res.status_code == 422
 
 
+class TestDeploymentHardening:
+    def test_health_endpoint(self, client):
+        res = client.get("/api/health")
+        assert res.status_code == 200
+        assert res.json() == {"status": "ok"}
+
+    def test_password_gate(self, monkeypatch):
+        monkeypatch.setenv("HONE_ACCESS_PASSWORD", "hunter2")
+        gated = TestClient(create_app())
+        assert gated.get("/").status_code == 401
+        assert gated.get("/api/menu").status_code == 401
+        # health stays open for platform probes
+        assert gated.get("/api/health").status_code == 200
+        # wrong password rejected, right password accepted (any username)
+        assert gated.get("/", auth=("anyone", "wrong")).status_code == 401
+        assert gated.get("/", auth=("anyone", "hunter2")).status_code == 200
+        assert gated.get("/api/menu", auth=("x", "hunter2")).status_code == 200
+
+    def test_public_mode_refuses_server_keys(self, client, monkeypatch):
+        monkeypatch.setenv("HONE_PUBLIC", "1")
+        monkeypatch.setenv("ALPACA_API_KEY", "server-key")
+        monkeypatch.setenv("ALPACA_SECRET_KEY", "server-secret")
+        res = client.post("/api/portfolio", json={"demo": False})
+        assert res.status_code == 401
+        assert "public deployment" in res.json()["detail"]
+
+    def test_public_mode_still_allows_demo(self, client, monkeypatch):
+        monkeypatch.setenv("HONE_PUBLIC", "1")
+        res = client.post("/api/portfolio", json={"demo": True})
+        assert res.status_code == 200
+
+
 class TestHedge:
     def test_risk_averse_gets_suggestions(self, client):
         res = client.post("/api/hedge", json={"gamma": 6.0, "demo": True})

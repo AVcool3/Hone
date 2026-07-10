@@ -12,15 +12,29 @@ GET  /                   — the single-page UI
 Alpaca credentials resolve per request: explicit fields in the request
 body win, otherwise the server's ALPACA_API_KEY / ALPACA_SECRET_KEY
 environment variables are used.  Request-supplied keys are never stored.
+
+Deployment environment variables
+--------------------------------
+HONE_ACCESS_PASSWORD
+    When set, every route requires HTTP Basic auth with this password
+    (any username).  Use it to gate a small private deployment.
+HONE_PUBLIC
+    When set to a truthy value ("1", "true", ...), the server refuses to
+    fall back to its own ALPACA_* environment variables — each user must
+    supply their own keys in the page.  Set this on any deployment that
+    strangers can reach so your keys can never be used by visitors.
 """
 
 from __future__ import annotations
 
+import base64
+import os
+import secrets
 from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
 from ..market_data.alpaca_client import AlpacaClient, AlpacaError
@@ -46,7 +60,19 @@ def _tier_info(gamma: float) -> s.TierInfo:
     )
 
 
+def _public_mode() -> bool:
+    return os.environ.get("HONE_PUBLIC", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _client(creds: s.AlpacaCredentials | None) -> AlpacaClient:
+    has_request_keys = bool(creds and creds.api_key and creds.secret_key)
+    if _public_mode() and not has_request_keys:
+        raise HTTPException(
+            status_code=401,
+            detail="This is a public deployment: enter your own Alpaca "
+            "paper-trading keys in the Data source panel (the server's "
+            "keys are disabled).",
+        )
     try:
         return AlpacaClient(
             api_key=creds.api_key if creds else None,
@@ -89,10 +115,33 @@ def _load_market(
 def create_app() -> FastAPI:
     app = FastAPI(title="Hone", version="0.2.0")
 
+    # ------------------------------------------------------- access gate
+    @app.middleware("http")
+    async def access_gate(request: Request, call_next):
+        password = os.environ.get("HONE_ACCESS_PASSWORD")
+        if password and request.url.path != "/api/health":
+            supplied = ""
+            auth = request.headers.get("authorization", "")
+            if auth.startswith("Basic "):
+                try:
+                    supplied = base64.b64decode(auth[6:]).decode().split(":", 1)[1]
+                except Exception:
+                    supplied = ""
+            if not secrets.compare_digest(supplied, password):
+                return Response(
+                    status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="Hone"'},
+                )
+        return await call_next(request)
+
     # ------------------------------------------------------------- static
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
+
+    @app.get("/api/health", include_in_schema=False)
+    def health() -> dict:
+        return {"status": "ok"}
 
     # --------------------------------------------------------------- menu
     @app.get("/api/menu", response_model=list[s.MenuRound])

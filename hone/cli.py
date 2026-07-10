@@ -21,6 +21,7 @@ demo
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import date, timedelta
 
@@ -211,8 +212,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.set_defaults(func=cmd_demo)
 
     w = sub.add_parser("serve", help="run the web app (UI + JSON API)")
-    w.add_argument("--host", default="127.0.0.1")
-    w.add_argument("--port", type=int, default=8000)
+    w.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
+    w.add_argument(
+        "--port", type=int, default=int(os.environ.get("PORT", "8000"))
+    )
     w.set_defaults(func=cmd_serve)
 
     return parser

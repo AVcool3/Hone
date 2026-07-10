@@ -1,0 +1,14 @@
+# Render.com blueprint — deploy with "New +" -> "Blueprint" pointing at
+# this repo, then add your custom domain under Settings -> Custom Domains.
+services:
+  - type: web
+    name: hone
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: HONE_PUBLIC
+        value: "1"
+      # Uncomment to password-gate the whole site:
+      # - key: HONE_ACCESS_PASSWORD
+      #   sync: false

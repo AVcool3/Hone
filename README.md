@@ -149,25 +149,12 @@ Two environment variables control the deployment posture:
 
 `/api/health` is always open for platform health checks.
 
-### Option A — Vercel (serverless)
+> **Why not Vercel?** Tried and hit a hard wall: Vercel Python functions
+> cap at 250 MB uncompressed, and this app's numpy+scipy+pandas+fastapi
+> stack exceeds it once complete. The hosts below run the Docker image
+> and have no such limit.
 
-The repo ships `vercel.json` + `api/index.py`, which run the FastAPI app
-as a serverless function.
-
-1. At [vercel.com](https://vercel.com): **Add New → Project**, import
-   this repo. Framework Preset: **Other**; leave build command and
-   output directory empty (`vercel.json` does the wiring).
-2. Project **Settings → Environment Variables**: add `HONE_PUBLIC` = `1`.
-3. Deploy. Then **Settings → Domains → Add** `studiohone.com` — Vercel
-   shows the DNS records (or transfers nameservers) and issues TLS
-   automatically.
-
-Caveats of the serverless runtime: no persistent disk (fine — the app
-is stateless), cold starts of a few seconds after idle, and the
-scipy/pandas bundle sits near Vercel's 250 MB function cap — if a
-deploy fails with a size error, use Render below instead.
-
-### Option B — Render (Docker, ~10 minutes)
+### Option A — Render (Docker, ~10 minutes)
 
 1. Push this repo to GitHub (already done if you're reading this there).
 2. At [render.com](https://render.com): **New + → Blueprint**, pick this
@@ -179,7 +166,7 @@ deploy fails with a size error, use Render below instead.
    `A`/`ALIAS` record for the apex). Certificates are provisioned
    automatically once DNS propagates.
 
-### Option C — Fly.io
+### Option B — Fly.io
 
 ```bash
 fly launch --copy-config --no-deploy    # uses fly.toml
@@ -187,7 +174,7 @@ fly deploy
 fly certs add studiohone.com            # prints the DNS records to add
 ```
 
-### Option D — your own VPS (full control)
+### Option C — your own VPS (full control)
 
 ```bash
 docker build -t hone . && docker run -d -p 127.0.0.1:8000:8000 hone

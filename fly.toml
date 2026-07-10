@@ -1,6 +1,6 @@
 # Fly.io config — `fly launch --copy-config` then `fly deploy`.
-# Add a domain with `fly certs add yourdomain.com`.
-app = "hone"
+# Add the domain with `fly certs add studiohone.com`.
+app = "studiohone"
 primary_region = "iad"
 
 [build]

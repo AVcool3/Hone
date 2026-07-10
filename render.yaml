@@ -2,7 +2,7 @@
 # this repo, then add your custom domain under Settings -> Custom Domains.
 services:
   - type: web
-    name: hone
+    name: studiohone
     runtime: docker
     plan: free
     healthCheckPath: /api/health

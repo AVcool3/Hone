@@ -156,7 +156,7 @@ Two environment variables control the deployment posture:
    repo — it reads `render.yaml` and builds the Docker image.
 3. You immediately get `https://hone-XXXX.onrender.com` with TLS.
 4. Custom domain: service **Settings → Custom Domains → Add**, enter
-   `yourdomain.com`. Render shows you the DNS records to create at your
+   `studiohone.com`. Render shows you the DNS records to create at your
    registrar: a `CNAME` from `www` to your onrender hostname (and an
    `A`/`ALIAS` record for the apex). Certificates are provisioned
    automatically once DNS propagates.
@@ -166,7 +166,7 @@ Two environment variables control the deployment posture:
 ```bash
 fly launch --copy-config --no-deploy    # uses fly.toml
 fly deploy
-fly certs add yourdomain.com            # prints the DNS records to add
+fly certs add studiohone.com            # prints the DNS records to add
 ```
 
 ### Option C — your own VPS (full control)
@@ -179,7 +179,7 @@ Then put [Caddy](https://caddyserver.com) in front for automatic HTTPS —
 a 2-line `Caddyfile`:
 
 ```
-yourdomain.com {
+studiohone.com {
     reverse_proxy 127.0.0.1:8000
 }
 ```

@@ -203,6 +203,21 @@ and point your domain's `A` record at the server's IP.
   is stateless. If you want saved profiles/portfolios per user, that's
   the next build step.
 
+## Accounts & saved portfolios (optional)
+
+Hone has an optional Supabase-powered auth layer: users sign in and save
+named portfolio snapshots (γ, tier, views) to reload later. It's **off
+until configured** — with no keys, Hone runs fully in-browser as
+described above. To turn it on, follow [docs/SUPABASE.md](docs/SUPABASE.md)
+(create a project, run the provided SQL with Row-Level Security, and fill
+in `hone/web/static/config.js`).
+
+## More docs
+
+- [docs/VISION.md](docs/VISION.md) — what Hone is and why.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
+- [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.
+
 ## Disclaimers
 
 This is analytical tooling, not investment advice. Option costs are

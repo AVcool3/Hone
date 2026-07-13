@@ -152,6 +152,21 @@ def create_app() -> FastAPI:
     def health() -> dict:
         return {"status": "ok"}
 
+    # Serve whitelisted static assets (config, optional demo video).
+    _STATIC_WHITELIST = {
+        "config.js": "application/javascript",
+        "demo.mp4": "video/mp4",
+    }
+
+    @app.get("/{asset}", include_in_schema=False)
+    def static_asset(asset: str):
+        if asset not in _STATIC_WHITELIST:
+            raise HTTPException(status_code=404, detail="not found")
+        path = STATIC_DIR / asset
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="not found")
+        return FileResponse(path, media_type=_STATIC_WHITELIST[asset])
+
     # --------------------------------------------------------------- menu
     @app.get("/api/menu", response_model=list[s.MenuRound])
     def get_menu() -> list[s.MenuRound]:

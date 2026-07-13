@@ -160,6 +160,18 @@
   footer { color: var(--ink-muted); font-size: 12.5px; margin-top: 26px; }
   a.link { color: var(--series-1); text-decoration: none; font-weight: 550; }
   a.link:hover { text-decoration: underline; }
+  .account-bar { display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+    font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+  .account-bar[hidden] { display: none; }
+  .account-bar button { background: none; border: 1px solid var(--border); color: var(--ink-2);
+    border-radius: 7px; padding: 5px 11px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 60;
+    display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modal { background: var(--surface-1); border-radius: 14px; padding: 24px; max-width: 420px; width: 100%;
+    border: 1px solid var(--border); }
+  .modal h2 { margin: 0 0 12px; font-size: 17px; }
+  .saved-item { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--grid); font-size: 14px; }
   .tut-step { display: flex; gap: 14px; margin: 16px 0; }
   .tut-step .n { flex: 0 0 30px; height: 30px; border-radius: 50%; background: var(--series-1);
     color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 14px; }
@@ -182,6 +194,7 @@
 </head>
 <body>
 <div class="wrap">
+  <div id="account-bar" class="account-bar" hidden></div>
   <div class="stepbar" id="stepbar" hidden>
     <span class="brand">Hone</span>
     <div class="track"><div id="step-fill"></div></div>
@@ -194,6 +207,7 @@
   </footer>
 </div>
 
+<script src="config.js"></script>
 <script>
 "use strict";
 /* ============================== state & utils ============================== */
@@ -238,6 +252,63 @@ function marketBody() {
   return body;
 }
 
+/* ========================= auth + saved portfolios ======================== */
+/* Optional Supabase integration. When unconfigured, Auth.enabled is false
+   and every method no-ops, so the app behaves exactly as before. Uses the
+   Supabase REST/GoTrue HTTP APIs directly (no SDK/CDN dependency). */
+const Auth = (() => {
+  const cfg = window.HONE_CONFIG || {};
+  const enabled = !!(cfg.supabaseUrl && cfg.supabaseAnonKey);
+  const base = (cfg.supabaseUrl || "").replace(/\/$/, "");
+  let session = null;
+  try { session = JSON.parse(localStorage.getItem("hone-session")); } catch {}
+
+  const hdr = () => ({
+    "Content-Type": "application/json",
+    "apikey": cfg.supabaseAnonKey,
+    ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+  });
+  const persist = (s) => { session = s; localStorage.setItem("hone-session", JSON.stringify(s)); };
+
+  async function authCall(path, payload) {
+    const res = await fetch(`${base}/auth/v1${path}`, {
+      method: "POST", headers: hdr(), body: JSON.stringify(payload) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error_description || data.msg || data.message || "auth failed");
+    return data;
+  }
+  return {
+    enabled,
+    user: () => (session && session.user) || null,
+    async signUp(email, password) { await authCall("/signup", { email, password }); return this.signIn(email, password); },
+    async signIn(email, password) {
+      const d = await authCall("/token?grant_type=password", { email, password });
+      persist(d); return d.user;
+    },
+    signOut() { session = null; localStorage.removeItem("hone-session"); },
+    async savePortfolio(name, payload) {
+      if (!session) throw new Error("Sign in to save portfolios.");
+      const res = await fetch(`${base}/rest/v1/portfolios`, {
+        method: "POST",
+        headers: { ...hdr(), Prefer: "return=representation" },
+        body: JSON.stringify({ user_id: session.user.id, name, data: payload }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).message || "save failed");
+      return (await res.json())[0];
+    },
+    async listPortfolios() {
+      if (!session) return [];
+      const res = await fetch(`${base}/rest/v1/portfolios?select=id,name,created_at,data&order=created_at.desc`, { headers: hdr() });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    async deletePortfolio(id) {
+      if (!session) return;
+      await fetch(`${base}/rest/v1/portfolios?id=eq.${id}`, { method: "DELETE", headers: hdr() });
+    },
+  };
+})();
+
 /* ================================= router ================================= */
 function go(step) { location.hash = "#/" + step; }
 function currentStep() {
@@ -256,7 +327,86 @@ function guard(step) {
 }
 window.addEventListener("hashchange", render);
 
+function renderAccountBar() {
+  const bar = $id("account-bar");
+  if (!Auth.enabled) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const u = Auth.user();
+  if (u) {
+    bar.innerHTML = `<span>${u.email}</span>
+      <button id="ac-saved">Saved portfolios</button>
+      <button id="ac-signout">Sign out</button>`;
+    $id("ac-saved").onclick = openSavedModal;
+    $id("ac-signout").onclick = () => { Auth.signOut(); renderAccountBar(); };
+  } else {
+    bar.innerHTML = `<button id="ac-signin">Sign in / Sign up</button>`;
+    $id("ac-signin").onclick = openAuthModal;
+  }
+}
+function modal(html) {
+  closeModal();
+  const back = document.createElement("div");
+  back.className = "modal-back"; back.id = "modal-back";
+  back.innerHTML = `<div class="modal">${html}</div>`;
+  back.onclick = (e) => { if (e.target === back) closeModal(); };
+  document.body.appendChild(back);
+}
+function closeModal() { const m = $id("modal-back"); if (m) m.remove(); }
+function openAuthModal() {
+  modal(`<h2>Sign in to Hone</h2>
+    <label class="field"><span>Email</span><input type="text" id="au-email"></label>
+    <label class="field"><span>Password</span><input type="password" id="au-pass"></label>
+    <div id="au-err"></div>
+    <div class="navrow"><button class="ghost" id="au-cancel">Cancel</button>
+      <span><button class="ghost" id="au-signup">Create account</button>
+      <button class="primary" id="au-signin">Sign in</button></span></div>`);
+  const run = async (fn) => {
+    const email = $id("au-email").value.trim(), pass = $id("au-pass").value;
+    $id("au-err").innerHTML = `<div class="spinner">Working…</div>`;
+    try { await fn(email, pass); closeModal(); renderAccountBar(); }
+    catch (e) { $id("au-err").innerHTML = `<div class="error">${e.message}</div>`; }
+  };
+  $id("au-cancel").onclick = closeModal;
+  $id("au-signin").onclick = () => run((e,p) => Auth.signIn(e,p));
+  $id("au-signup").onclick = () => run((e,p) => Auth.signUp(e,p));
+}
+async function openSavedModal() {
+  modal(`<h2>Saved portfolios</h2><div id="sv-list"><div class="spinner">Loading…</div></div>
+    <div class="navrow"><button class="ghost" id="sv-close">Close</button>
+      <button class="primary" id="sv-save">Save current</button></div>`);
+  $id("sv-close").onclick = closeModal;
+  $id("sv-save").onclick = saveCurrent;
+  const items = await Auth.listPortfolios();
+  $id("sv-list").innerHTML = items.length ? items.map(it => `
+    <div class="saved-item">
+      <span><b>${it.name}</b> <span class="muted">γ ${(it.data?.gamma ?? "—")}</span></span>
+      <span><button class="ghost" data-load="${it.id}">Load</button>
+        <button class="ghost" data-del="${it.id}">✕</button></span>
+    </div>`).join("") : `<div class="muted">No saved portfolios yet. Run through the flow and click "Save current".</div>`;
+  $id("sv-list").querySelectorAll("[data-load]").forEach(b =>
+    b.onclick = () => { const it = items.find(x => x.id == b.dataset.load); loadSaved(it); });
+  $id("sv-list").querySelectorAll("[data-del]").forEach(b =>
+    b.onclick = async () => { await Auth.deletePortfolio(b.dataset.del); openSavedModal(); });
+}
+async function saveCurrent() {
+  const name = prompt("Name this portfolio:", `Portfolio ${new Date().toLocaleDateString()}`);
+  if (!name) return;
+  const payload = { gamma: S.gamma, views: S.views || [], demo: S.demo,
+    tier: S.profile?.tier?.tier ?? RUNTIME.optimize?.tier?.tier ?? null,
+    savedAt: new Date().toISOString() };
+  try { await Auth.savePortfolio(name, payload); openSavedModal(); }
+  catch (e) { alert(e.message); }
+}
+function loadSaved(it) {
+  if (!it) return;
+  S.gamma = it.data.gamma; S.views = it.data.views || []; S.demo = it.data.demo;
+  S.profile = null; save(); RUNTIME.optimize = null;
+  closeModal();
+  go(typeof S.gamma === "number" ? "views" : "start");
+}
+
 function render() {
+  renderAccountBar();
   let step = currentStep();
   if (ASIDE_PAGES.includes(step)) {
     $id("stepbar").hidden = true;
@@ -734,9 +884,13 @@ PAGES.done = () => {
     </table>
     <div class="note">This is decision support, not investment advice. Execute through your broker;
     for options use live quotes, not the indicative costs shown here.</div>
-    ${navRow("hedge", "Start over", null)}
+    ${navRow("hedge", "Start over", null,
+      (Auth.enabled && Auth.user()) ? `<button class="ghost" id="save-portfolio">Save this portfolio</button>` :
+      (Auth.enabled ? `<button class="ghost" id="save-signin">Sign in to save</button>` : ""))}
   </div>`;
   $id("next-btn").onclick = resetAll;
+  const sp = $id("save-portfolio"); if (sp) sp.onclick = saveCurrent;
+  const ss = $id("save-signin"); if (ss) ss.onclick = openAuthModal;
 };
 
 /* ------------------------------ tutorial --------------------------------- */

@@ -16,6 +16,19 @@ class TestStatic:
         assert "Hone" in res.text
         assert "questionnaire" in res.text.lower()
 
+    def test_config_js_served(self, client):
+        res = client.get("/config.js")
+        assert res.status_code == 200
+        assert "HONE_CONFIG" in res.text
+        assert "application/javascript" in res.headers["content-type"]
+
+    def test_docs_not_shadowed_by_static_catchall(self, client):
+        assert client.get("/docs").status_code == 200
+        assert client.get("/openapi.json").status_code == 200
+
+    def test_unknown_asset_404(self, client):
+        assert client.get("/nope.js").status_code == 404
+
 
 class TestMenu:
     def test_three_rounds_of_ten(self, client):

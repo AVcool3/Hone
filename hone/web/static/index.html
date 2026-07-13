@@ -556,7 +556,7 @@ PAGES.views = () => {
     div.innerHTML = `
       <label class="field"><span>Ticker</span><input type="text" class="v-ticker" placeholder="TSLA" value="${v.ticker||""}"></label>
       <label class="field"><span>Target price $</span><input type="number" class="v-target" step="0.01" min="0" value="${v.target_price||""}"></label>
-      <label class="field"><span>Confidence (0–1)</span><input type="number" class="v-conf" step="0.05" min="0.05" max="1" value="${v.confidence||0.5}"></label>
+      <label class="field"><span>Confidence %</span><input type="number" class="v-conf" step="5" min="5" max="100" value="${v.confidence != null ? Math.round(v.confidence*100) : 50}"></label>
       <label class="field"><span>Horizon (days)</span><input type="number" class="v-days" step="1" min="7" value="${v.horizon_days||365}"></label>
       <button class="ghost v-del">✕</button>`;
     div.querySelector(".v-del").onclick = () => div.remove();
@@ -568,7 +568,7 @@ PAGES.views = () => {
     S.views = [...document.querySelectorAll(".view-row")].map(r => ({
       ticker: r.querySelector(".v-ticker").value.trim().toUpperCase(),
       target_price: parseFloat(r.querySelector(".v-target").value),
-      confidence: parseFloat(r.querySelector(".v-conf").value),
+      confidence: parseFloat(r.querySelector(".v-conf").value) / 100,
       horizon_days: parseFloat(r.querySelector(".v-days").value),
     })).filter(v => v.ticker && v.target_price > 0);
     S.maxWeight = parseFloat($id("opt-maxw").value) || 0.35;

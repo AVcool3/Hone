@@ -301,16 +301,29 @@ def create_app() -> FastAPI:
                 )
             )
         value = req.portfolio_value
-        if value is None:
-            if req.demo:
+        option_chain = None
+        if req.demo:
+            if value is None:
                 value = DEMO_PORTFOLIO_VALUE
-            else:
+        else:
+            try:
+                client = _client(req.credentials)
+                if value is None:
+                    value = float(client.get_account().get("equity") or 0) or None
+                # Live option chain for accurate hedge pricing (best-effort:
+                # falls back to Black-Scholes if unavailable/not entitled).
                 try:
-                    value = float(
-                        _client(req.credentials).get_account().get("equity") or 0
-                    ) or None
-                except (AlpacaError, ValueError, TypeError, HTTPException):
-                    value = None
+                    from datetime import date, timedelta
+
+                    option_chain = client.get_option_chain(
+                        req.hedge_instrument,
+                        expiration_gte=date.today() + timedelta(days=30),
+                        expiration_lte=date.today() + timedelta(days=270),
+                    )
+                except AlpacaError:
+                    option_chain = None
+            except (AlpacaError, ValueError, TypeError, HTTPException):
+                value = value if value is not None else None
 
         try:
             report = rebalance(
@@ -326,6 +339,7 @@ def create_app() -> FastAPI:
                 if req.hedge_instrument in prices.columns
                 else 100.0,
                 portfolio_value=value,
+                option_chain=option_chain,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
@@ -429,6 +443,44 @@ def create_app() -> FastAPI:
             )
         )
         return opt.hedge_plan
+
+    # ------------------------------------------------------------- backtest
+    @app.post("/api/backtest", response_model=s.BacktestResponse)
+    def backtest(req: s.BacktestRequest) -> s.BacktestResponse:
+        from ..backtest.engine import run_backtest
+
+        if req.demo:
+            prices, _ = synthetic_universe(n_days=max(req.lookback_days + 80, 600))
+        else:
+            symbols = req.symbols
+            if not symbols:
+                weights = _client(req.credentials).portfolio_weights()
+                if weights.empty:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No holdings to backtest. Add positions or pass symbols.",
+                    )
+                symbols = sorted(set(weights.index) | {"SPY"})
+            start = date.today() - timedelta(days=int(req.lookback_days * 1.6))
+            prices = _client(req.credentials).get_bars(symbols, start=start)
+        try:
+            result = run_backtest(prices, gamma=req.gamma, max_weight=req.max_weight)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return s.BacktestResponse(
+            gamma=result.gamma,
+            start=result.start,
+            end=result.end,
+            rebalances=result.rebalances,
+            headline=result.headline,
+            strategies=[
+                s.StrategyOut(
+                    name=st.name, label=st.label, equity_curve=st.equity_curve,
+                    dates=st.dates, metrics=st.metrics,
+                )
+                for st in result.strategies
+            ],
+        )
 
     return app
 

@@ -32,6 +32,7 @@ import numpy as np
 import pandas as pd
 
 from .black_scholes import bs_price, implied_zero_cost_call_strike
+from .option_chain import select_contract
 
 DEFAULT_RISK_FREE = 0.04
 
@@ -275,19 +276,40 @@ def protective_put(
     t_years: float = 0.5,
     coverage: float = 1.0,
     risk_free: float = DEFAULT_RISK_FREE,
+    chain: list[dict] | None = None,
 ) -> HedgeSuggestion:
-    """Protective puts on an index proxy with a gamma-dependent floor."""
+    """Protective puts on an index proxy with a gamma-dependent floor.
+
+    When a live option ``chain`` is supplied, the nearest listed put to
+    the target strike/horizon is used for a real market premium (and its
+    implied vol); otherwise the Black-Scholes model price is used.
+    """
     floor = _protection_floor(gamma)
     strike = spot * (1.0 - floor)
-    premium = bs_price("put", spot, strike, implied_vol, t_years, risk_free)
-    annual_cost = coverage * (premium / spot) * (1.0 / t_years)
+    pricing_source = "black_scholes"
+    quoted_symbol = None
+    quote = None
+    if chain is not None:
+        quote = select_contract(chain, "put", strike, t_years * 365.0)
+    if quote is not None:
+        strike = quote.strike
+        floor = max(0.0, 1.0 - strike / spot)
+        premium = quote.price
+        eff_t = max(quote.days_to_expiry / 365.0, 1e-6)
+        pricing_source = "alpaca_chain"
+        quoted_symbol = quote.symbol
+    else:
+        eff_t = t_years
+        premium = bs_price("put", spot, strike, implied_vol, t_years, risk_free)
+    annual_cost = coverage * (premium / spot) * (1.0 / eff_t)
+    src_note = " (live quote)" if pricing_source == "alpaca_chain" else ""
     return HedgeSuggestion(
         kind="protective_put",
         instrument=instrument,
         description=(
-            f"Buy {t_years * 12:.0f}-month {instrument} puts struck {floor:.0%} "
+            f"Buy {eff_t * 12:.0f}-month {instrument} puts struck {floor:.0%} "
             f"below spot (strike ~ {strike:,.2f}) covering {coverage:.0%} of the "
-            f"portfolio. Caps downside at ~{floor:.0%} beyond the premium."
+            f"portfolio{src_note}. Caps downside at ~{floor:.0%} beyond the premium."
         ),
         hedge_notional_fraction=float(coverage),
         est_annual_cost_fraction=float(annual_cost),
@@ -295,7 +317,9 @@ def protective_put(
             "strike": float(strike),
             "floor": floor,
             "premium_per_share": float(premium),
-            "t_years": t_years,
+            "t_years": eff_t,
+            "pricing_source": pricing_source,
+            "contract": quoted_symbol,
         },
     )
 
@@ -308,10 +332,64 @@ def zero_cost_collar(
     t_years: float = 0.5,
     coverage: float = 1.0,
     risk_free: float = DEFAULT_RISK_FREE,
+    chain: list[dict] | None = None,
 ) -> HedgeSuggestion:
-    """Same put floor, financed by selling an out-of-the-money call."""
+    """Same put floor, financed by selling an out-of-the-money call.
+
+    With a live ``chain``, the put premium comes from the nearest listed
+    put, and the financing call is the nearest listed call whose premium
+    covers it — so the collar is genuinely zero-cost at market prices,
+    not just under a flat-vol model.
+    """
     floor = _protection_floor(gamma)
     put_strike = spot * (1.0 - floor)
+    pricing_source = "black_scholes"
+    if chain is not None:
+        put_q = select_contract(chain, "put", put_strike, t_years * 365.0)
+        if put_q is not None:
+            put_strike = put_q.strike
+            floor = max(0.0, 1.0 - put_strike / spot)
+            calls = [
+                c
+                for c in chain
+                if c.get("type") == "call"
+                and c.get("mid")
+                and c["expiration"] == put_q.expiration
+                and c["strike"] > spot
+            ]
+            # cheapest call whose premium still covers the put => tightest
+            # upside cap that keeps the collar at (or below) zero cost
+            covering = sorted(
+                (c for c in calls if c["mid"] >= put_q.price),
+                key=lambda c: c["strike"],
+            )
+            call_strike = (
+                covering[0]["strike"]
+                if covering
+                else (max(calls, key=lambda c: c["mid"])["strike"] if calls else spot * 1.1)
+            )
+            upside_cap = call_strike / spot - 1.0
+            pricing_source = "alpaca_chain"
+            return HedgeSuggestion(
+                kind="collar",
+                instrument=instrument,
+                description=(
+                    f"Zero-cost collar on {instrument} (live quotes): buy the "
+                    f"{floor:.0%}-OTM put (strike ~ {put_strike:,.2f}) and sell a "
+                    f"call struck ~ {call_strike:,.2f} ({upside_cap:+.0%}). Downside "
+                    f"capped at ~{floor:.0%}, upside capped at ~{upside_cap:.0%}."
+                ),
+                hedge_notional_fraction=float(coverage),
+                est_annual_cost_fraction=0.0,
+                details={
+                    "put_strike": float(put_strike),
+                    "call_strike": float(call_strike),
+                    "floor": floor,
+                    "upside_cap": float(upside_cap),
+                    "t_years": max(put_q.days_to_expiry / 365.0, 1e-6),
+                    "pricing_source": pricing_source,
+                },
+            )
     call_strike = implied_zero_cost_call_strike(
         spot, put_strike, implied_vol, t_years, risk_free
     )
@@ -333,6 +411,7 @@ def zero_cost_collar(
             "floor": floor,
             "upside_cap": float(upside_cap),
             "t_years": t_years,
+            "pricing_source": "black_scholes",
         },
     )
 
@@ -349,6 +428,7 @@ def suggest_hedges(
     implied_vol: float | None = None,
     risk_free: float = DEFAULT_RISK_FREE,
     portfolio_value: float | None = None,
+    option_chain: list[dict] | None = None,
 ) -> HedgePlan:
     """Full hedge plan for a portfolio and a risk-aversion parameter.
 
@@ -385,12 +465,14 @@ def suggest_hedges(
         )
         suggestions.append(
             protective_put(
-                gamma, hedge_spot, iv, instrument=hedge_instrument, risk_free=risk_free
+                gamma, hedge_spot, iv, instrument=hedge_instrument,
+                risk_free=risk_free, chain=option_chain,
             )
         )
         suggestions.append(
             zero_cost_collar(
-                gamma, hedge_spot, iv, instrument=hedge_instrument, risk_free=risk_free
+                gamma, hedge_spot, iv, instrument=hedge_instrument,
+                risk_free=risk_free, chain=option_chain,
             )
         )
 

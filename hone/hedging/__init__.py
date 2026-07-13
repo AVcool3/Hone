@@ -7,6 +7,7 @@ user's risk-aversion parameter says they can tolerate.
 """
 
 from .black_scholes import bs_price, bs_delta, implied_zero_cost_call_strike
+from .option_chain import QuotedContract, select_contract
 from .hedge import (
     HedgePlan,
     HedgeSuggestion,
@@ -22,6 +23,8 @@ __all__ = [
     "bs_price",
     "bs_delta",
     "implied_zero_cost_call_strike",
+    "QuotedContract",
+    "select_contract",
     "HedgePlan",
     "HedgeSuggestion",
     "gamma_target_volatility",

@@ -212,6 +212,70 @@ class AlpacaClient:
             {s: float(t["p"]) for s, t in trades.items()}, dtype=float
         ).reindex(symbols)
 
+    # ----------------------------------------------------------- options
+    def get_option_chain(
+        self,
+        underlying: str,
+        expiration_gte: str | date | None = None,
+        expiration_lte: str | date | None = None,
+        feed: str = "indicative",
+    ) -> list[dict[str, Any]]:
+        """Live option chain snapshot for an underlying.
+
+        Returns one dict per contract with the fields the hedging engine
+        needs: ``symbol``, ``type`` ("call"/"put"), ``strike``,
+        ``expiration`` (ISO date), ``mid`` (indicative price from the
+        latest quote), and ``iv`` (implied volatility, when present).
+
+        Uses Alpaca's options market-data endpoint with pagination. The
+        ``indicative`` feed is available without an options-data
+        subscription; pass ``feed="opra"`` if the account has OPRA.
+        """
+        params: dict[str, Any] = {"feed": feed, "limit": 1000}
+        if expiration_gte is not None:
+            params["expiration_date_gte"] = _iso_date(expiration_gte)
+        if expiration_lte is not None:
+            params["expiration_date_lte"] = _iso_date(expiration_lte)
+
+        contracts: list[dict[str, Any]] = []
+        page_token: str | None = None
+        while True:
+            if page_token:
+                params["page_token"] = page_token
+            data = self._request(
+                "GET",
+                self.data_url,
+                f"/v1beta1/options/snapshots/{underlying}",
+                params=params,
+            )
+            for sym, snap in (data.get("snapshots") or {}).items():
+                parsed = _parse_option_symbol(sym)
+                if parsed is None:
+                    continue
+                opt_type, strike, expiry = parsed
+                quote = snap.get("latestQuote") or {}
+                bid, ask = quote.get("bp"), quote.get("ap")
+                mid = None
+                if bid and ask:
+                    mid = (float(bid) + float(ask)) / 2.0
+                elif snap.get("latestTrade"):
+                    mid = float(snap["latestTrade"].get("p") or 0) or None
+                iv = snap.get("impliedVolatility")
+                contracts.append(
+                    {
+                        "symbol": sym,
+                        "type": opt_type,
+                        "strike": strike,
+                        "expiration": expiry,
+                        "mid": mid,
+                        "iv": float(iv) if iv is not None else None,
+                    }
+                )
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+        return contracts
+
 
 def _iso(value: str | date | datetime) -> str:
     if isinstance(value, str):
@@ -219,3 +283,24 @@ def _iso(value: str | date | datetime) -> str:
     if isinstance(value, datetime):
         return value.strftime("%Y-%m-%dT%H:%M:%SZ")
     return value.isoformat()
+
+
+def _iso_date(value: str | date) -> str:
+    return value if isinstance(value, str) else value.isoformat()
+
+
+def _parse_option_symbol(sym: str) -> tuple[str, float, str] | None:
+    """Parse an OCC option symbol into (type, strike, expiration).
+
+    OCC format: ROOT + YYMMDD + C/P + strike*1000 padded to 8 digits,
+    e.g. ``SPY240920P00450000`` -> ("put", 450.0, "2024-09-20").
+    """
+    import re
+
+    m = re.match(r"^[A-Z]+(\d{6})([CP])(\d{8})$", sym)
+    if not m:
+        return None
+    yymmdd, cp, strike_raw = m.groups()
+    expiry = f"20{yymmdd[:2]}-{yymmdd[2:4]}-{yymmdd[4:6]}"
+    strike = int(strike_raw) / 1000.0
+    return ("call" if cp == "C" else "put", strike, expiry)

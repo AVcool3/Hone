@@ -185,3 +185,30 @@ class HedgeRequest(BaseModel):
     lookback_days: int = 504
     hedge_instrument: str = "SPY"
     portfolio_value: float | None = None
+
+
+# ---------------------------------------------------------------- backtest
+class BacktestRequest(BaseModel):
+    gamma: float
+    demo: bool = False
+    credentials: AlpacaCredentials | None = None
+    symbols: list[str] | None = None  # override universe (else demo/holdings)
+    lookback_days: int = 1260  # ~5y of history to backtest over
+    max_weight: float = 0.35
+
+
+class StrategyOut(BaseModel):
+    name: str
+    label: str
+    equity_curve: list[float]
+    dates: list[str]
+    metrics: dict[str, float]
+
+
+class BacktestResponse(BaseModel):
+    gamma: float
+    start: str
+    end: str
+    rebalances: int
+    headline: str
+    strategies: list[StrategyOut]

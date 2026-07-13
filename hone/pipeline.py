@@ -86,6 +86,7 @@ def rebalance(
     hedge_spot: float = 100.0,
     risk_free: float = 0.04,
     portfolio_value: float | None = None,
+    option_chain: list[dict] | None = None,
 ) -> RebalanceReport:
     """Run steps 2-4 of the pipeline.
 
@@ -144,6 +145,7 @@ def rebalance(
         hedge_spot=hedge_spot,
         risk_free=risk_free,
         portfolio_value=portfolio_value,
+        option_chain=option_chain,
     )
 
     return RebalanceReport(

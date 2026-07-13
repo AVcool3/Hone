@@ -52,6 +52,7 @@
 
   /* step header */
   .stepbar { display: flex; align-items: center; gap: 8px; margin: 6px 0 22px; }
+  .stepbar[hidden] { display: none; }
   .stepbar .brand { font-weight: 800; letter-spacing: -0.01em; margin-right: 10px; }
   .stepbar .track { flex: 1; height: 4px; background: var(--grid); border-radius: 2px; overflow: hidden; }
   .stepbar .track > div { height: 100%; background: var(--series-1); border-radius: 2px; transition: width 0.3s; }
@@ -157,6 +158,26 @@
   .spinner { color: var(--ink-muted); font-size: 14px; margin: 12px 0; }
   details.settings summary { cursor: pointer; color: var(--ink-2); font-size: 14px; }
   footer { color: var(--ink-muted); font-size: 12.5px; margin-top: 26px; }
+  a.link { color: var(--series-1); text-decoration: none; font-weight: 550; }
+  a.link:hover { text-decoration: underline; }
+  .tut-step { display: flex; gap: 14px; margin: 16px 0; }
+  .tut-step .n { flex: 0 0 30px; height: 30px; border-radius: 50%; background: var(--series-1);
+    color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .tut-step .body h3 { font-size: 15px; margin-bottom: 3px; }
+  .tut-step .body p { color: var(--ink-2); font-size: 14px; }
+  .video-slot { position: relative; width: 100%; aspect-ratio: 16/9; border-radius: 12px;
+    background: var(--page); border: 1px solid var(--border); overflow: hidden; margin: 8px 0 4px; }
+  .video-slot video, .video-slot iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .video-slot .placeholder { position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 20px; color: var(--ink-muted); }
+  .demo-caption { background: var(--accent-wash); border-radius: 8px; padding: 10px 13px; margin: 10px 0;
+    font-size: 14px; color: var(--ink-1); min-height: 42px; }
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 10px; }
+  .strat-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; margin: 10px 0; }
+  .strat-legend span { display: flex; align-items: center; gap: 6px; }
+  .strat-legend i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+  svg .gridline { stroke: var(--grid); stroke-width: 1; }
+  svg text.axis { fill: var(--ink-muted); font-size: 11px; }
 </style>
 </head>
 <body>
@@ -185,6 +206,8 @@ const fmtLoss = (x) => (x < 0 ? "−" : "") + fmtMoney(x, 0);
 const STEPS = ["start", "quiz", "profile", "portfolio", "views", "optimize", "hedge", "done"];
 const STEP_LABELS = {start:"Start", quiz:"Questionnaire", profile:"Your profile", portfolio:"Portfolio",
                      views:"Your views", optimize:"Rebalance", hedge:"Hedge", done:"Summary"};
+/* standalone pages outside the linear flow (no progress bar) */
+const ASIDE_PAGES = ["tutorial", "analytics"];
 
 let S = load();
 function load() {
@@ -219,7 +242,7 @@ function marketBody() {
 function go(step) { location.hash = "#/" + step; }
 function currentStep() {
   const h = (location.hash || "").replace(/^#\//, "");
-  return STEPS.includes(h) ? h : "start";
+  return (STEPS.includes(h) || ASIDE_PAGES.includes(h)) ? h : "start";
 }
 function guard(step) {
   // send the user back to the earliest step whose prerequisites are missing
@@ -235,6 +258,12 @@ window.addEventListener("hashchange", render);
 
 function render() {
   let step = currentStep();
+  if (ASIDE_PAGES.includes(step)) {
+    $id("stepbar").hidden = true;
+    PAGES[step]();
+    window.scrollTo(0, 0);
+    return;
+  }
   const target = guard(step);
   if (target !== step) { go(target); return; }
   const idx = STEPS.indexOf(step);
@@ -305,10 +334,8 @@ PAGES.start = () => {
     risk-aversion parameter <b>γ</b> with the same experiment economists use,
     then makes your whole portfolio answer to it: what to hold, how to act on
     your convictions, and how to hedge what you can't stomach.</p>
-    <p class="lead">Four stops: a <b>30-choice questionnaire</b> → your <b>risk profile</b>
-    (1 of 50 tiers) → your <b>portfolio</b>, rebalanced around <b>your views</b> →
-    a <b>hedge plan</b> sized to your number. In a hurry? You can also let Hone
-    <b>read a γ straight out of your current portfolio</b> and skip the questionnaire.</p>
+    <p class="lead"><a href="#/tutorial" class="link">New here? Read the walkthrough</a>
+      · <a href="#/analytics" class="link">See the evidence &amp; backtest</a></p>
 
     <h2>Data source</h2>
     <label class="field" style="display:flex;align-items:center;gap:8px">
@@ -662,13 +689,15 @@ PAGES.hedge = () => {
     </div>
     <div class="muted">*≈95% one-year value-at-risk (1.65σ), a rule-of-thumb bound, not a guarantee.</div>` : "";
 
-  const cards = plan.suggestions.map(sug => `
+  const cards = plan.suggestions.map(sug => {
+    const live = sug.details && sug.details.pricing_source === "alpaca_chain";
+    return `
     <div class="hedge-card">
-      <div class="kind">${sug.kind.replace("_"," ")}</div>
+      <div class="kind">${sug.kind.replace("_"," ")}${live ? ' <span style="color:var(--good)">· live quote</span>' : ""}</div>
       <p>${sug.description}</p>
       <div class="meta">${sug.hedged_volatility != null ? `Hedged volatility ≈ ${fmtPct(sug.hedged_volatility)} · ` : ""}
         Est. cost ≈ ${fmtPct(sug.est_annual_cost_fraction)} of portfolio/yr${value ? ` (${fmtMoney(sug.est_annual_cost_fraction*value,0)})` : ""}</div>
-    </div>`).join("");
+    </div>`;}).join("");
 
   $id("page").innerHTML = `<div class="card">
     <h1>Hedging to your number</h1>
@@ -709,6 +738,195 @@ PAGES.done = () => {
   </div>`;
   $id("next-btn").onclick = resetAll;
 };
+
+/* ------------------------------ tutorial --------------------------------- */
+PAGES.tutorial = () => {
+  const steps = [
+    ["Measure your risk aversion",
+     "You'll make 30 choices between pairs of lotteries at rising stakes (the Holt-Laury experiment, the standard instrument in experimental economics). A maximum-likelihood model fits a constant-relative-risk-aversion utility curve to your choices — separating your true preference from random mistakes — and returns a single number, γ, plus a 95% confidence interval. In a hurry, you can instead let Hone read a γ straight out of your current portfolio, or type one you already know."],
+    ["Land in one of 50 tiers",
+     "Your γ places you on a 50-tier scale, from aggressively risk-seeking (Tier 1) to highly risk-averse (Tier 50). This tier is the single number every later step answers to."],
+    ["Connect your portfolio",
+     "Hone reads your holdings and their price history, measures how they move together (a shrinkage-estimated covariance matrix), and — the key insight — shows the tier your portfolio is actually invested like, next to the tier your answers imply. The gap between stated and revealed risk is often the most useful thing you'll see."],
+    ["Add your views (optional)",
+     "Name a stock you like, a target price, and a confidence percentage. Black-Litterman blends your view against market equilibrium in proportion to how confident you are — a 90% view moves the portfolio hard, a 20% view barely nudges it. No views is fine: you'll get a pure risk-based rebalance."],
+    ["Rebalance to your number",
+     "Mean-variance optimization rebuilds your weights with your γ setting the risk appetite, long-only with a per-name cap. You get a target portfolio, the exact buy/sell trades in dollars, and a plain-English reason for each one."],
+    ["Hedge what you can't stomach",
+     "Your γ implies a maximum tolerable loss (the Merton risk budget), shown in dollars. If your portfolio runs hotter, Hone sizes three hedges — an index short, a protective put, and a zero-cost collar — priced from live option quotes when your Alpaca account provides them, Black-Scholes otherwise. You also see what past crashes (2008, 2020, 2022) would have done to your specific portfolio."],
+  ];
+  $id("page").innerHTML = `
+  <div class="card">
+    <h1>How Hone works</h1>
+    <p class="lead">Hone gives individual investors the risk-measurement and
+    portfolio-construction tools institutions use, in one guided flow. Here's the
+    whole journey, and how to connect a brokerage account.</p>
+    <div class="video-slot" id="video-slot">
+      <div class="placeholder">
+        <div style="font-size:34px">🎬</div>
+        <div><b>Watch a 60-second guided demo</b><br>
+        <span class="muted">The app walks itself through a full run on demo data.</span></div>
+        <button class="primary" id="play-demo">▶ Play guided demo</button>
+      </div>
+    </div>
+    <div class="muted">Prefer a real screen recording? Drop a file at
+    <code>hone/web/static/demo.mp4</code> (or set a video URL) and it appears here automatically.</div>
+
+    <h2 style="margin-top:22px">The six stages</h2>
+    ${steps.map((s, i) => `<div class="tut-step"><div class="n">${i+1}</div>
+      <div class="body"><h3>${s[0]}</h3><p>${s[1]}</p></div></div>`).join("")}
+
+    <h2>Connecting your Alpaca account (for live data)</h2>
+    <p class="lead">Demo mode needs nothing. To run on your real holdings, Hone uses
+    Alpaca's <b>paper-trading</b> API (fake money — it can't touch real funds):</p>
+    <div class="tut-step"><div class="n">1</div><div class="body"><h3>Make a free Alpaca account</h3>
+      <p>Sign up at <b>alpaca.markets</b> and switch to the <b>Paper Trading</b> view (top-left toggle).</p></div></div>
+    <div class="tut-step"><div class="n">2</div><div class="body"><h3>Generate paper API keys</h3>
+      <p>On the paper dashboard, find <b>API Keys</b> → <b>Generate New Keys</b>. Copy the Key ID (starts <code>PK</code>) and the Secret — the secret is shown only once.</p></div></div>
+    <div class="tut-step"><div class="n">3</div><div class="body"><h3>Buy a few paper positions</h3>
+      <p>Hone builds your risk picture from what you hold, so add 4–6 stocks in the Alpaca paper dashboard (a mix — a couple of tech names, an index ETF like SPY, something defensive).</p></div></div>
+    <div class="tut-step"><div class="n">4</div><div class="body"><h3>Paste the keys into Hone</h3>
+      <p>On the start page, untick demo mode and paste your keys. They stay in your browser and are sent only with your own requests — never stored on the server.</p></div></div>
+
+    <div class="note">Hone is decision-support and education, not investment advice.</div>
+    <div class="navrow"><button class="ghost" onclick="go('start')">&larr; Back to start</button>
+      <button class="primary" onclick="go('analytics')">See the evidence →</button></div>
+  </div>`;
+  // if a real recording exists, show it instead of the placeholder
+  const vid = document.createElement("video");
+  vid.src = "demo.mp4"; vid.controls = true;
+  vid.onloadeddata = () => { $id("video-slot").innerHTML = ""; $id("video-slot").appendChild(vid); };
+  const playBtn = $id("play-demo");
+  if (playBtn) playBtn.onclick = () => runGuidedDemo();
+};
+
+/* -------------------------- guided (self-running) demo ------------------- */
+const DEMO_SCRIPT = [
+  ["start", "This is Hone. It measures your personal risk tolerance, then builds and hedges a portfolio around it. Let's watch a full run on demo data."],
+  ["portfolio", "First it reads your holdings and measures their risk — and shows the tier your portfolio is invested like versus the tier your answers imply."],
+  ["views", "You can add a conviction: a stock, a target price, and how confident you are. Here: TSLA to $220, 60% confident."],
+  ["optimize", "Black-Litterman blends that view with the market, then mean-variance optimization reweights the portfolio to your risk number — with a reason for every trade."],
+  ["hedge", "Finally it sizes hedges to your dollar risk budget and shows what past crashes would do to your portfolio."],
+  ["done", "That's the whole loop: measure, diagnose, rebalance, hedge. Try it yourself — demo mode needs no account."],
+];
+async function runGuidedDemo() {
+  S.demo = true; S.gamma = null; S.profile = null; S.views = [{ticker:"TSLA", target_price:220, confidence:0.6, horizon_days:365}]; save();
+  RUNTIME.optimize = null;
+  // caption overlay
+  let cap = $id("demo-cap");
+  if (!cap) {
+    cap = document.createElement("div");
+    cap.id = "demo-cap";
+    cap.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--series-1);color:#fff;padding:14px 18px;font-size:15px;text-align:center;box-shadow:0 -2px 12px rgba(0,0,0,0.2)";
+    document.body.appendChild(cap);
+  }
+  const stop = document.createElement("button");
+  const setCap = (t) => { cap.innerHTML = `${t} <button id="demo-stop" style="margin-left:12px;background:rgba(255,255,255,0.25);border:0;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer">Stop</button>`;
+    $id("demo-stop").onclick = () => { RUNTIME.demoStop = true; cap.remove(); }; };
+  RUNTIME.demoStop = false;
+
+  // prime the optimize result so the later pages render
+  for (const [step, text] of DEMO_SCRIPT) {
+    if (RUNTIME.demoStop) return;
+    if (step === "optimize" && !RUNTIME.optimize) {
+      setCap("Optimizing…");
+      try {
+        RUNTIME.optimize = await api("/api/optimize", Object.assign(marketBody(), {
+          gamma: 1.2, views: S.views, max_weight: 0.35, portfolio_value: 25000 }));
+        S.gamma = 1.2; save();
+      } catch (e) { setCap("Demo error: " + e.message); return; }
+    }
+    go(step);
+    setCap(text);
+    await new Promise(r => setTimeout(r, step === "start" ? 3200 : 5200));
+  }
+  if (!RUNTIME.demoStop) cap.remove();
+}
+
+/* ------------------------------ analytics -------------------------------- */
+PAGES.analytics = () => {
+  $id("page").innerHTML = `
+  <div class="card">
+    <h1>Does matching risk to the investor actually help?</h1>
+    <p class="lead">A walk-forward backtest of Hone's tier-matched method against the
+    portfolios individuals typically hold instead. Every rebalance uses only data
+    available at the time — no look-ahead. Run it on demo data, or on your own
+    holdings if connected.</p>
+    <div class="row" style="max-width:420px">
+      <label class="field"><span>Risk-aversion γ</span>
+        <input type="number" id="bt-gamma" step="0.1" value="${(S.gamma ?? 2.0).toFixed(1)}"></label>
+      <button class="primary" id="bt-run" style="align-self:flex-end;margin-bottom:10px">Run backtest</button>
+    </div>
+    <div id="bt-error"></div>
+    <div id="bt-out"></div>
+    <div class="navrow"><button class="ghost" onclick="go('start')">&larr; Back to start</button><span></span></div>
+  </div>`;
+  $id("bt-run").onclick = runBacktest;
+};
+async function runBacktest() {
+  $id("bt-error").innerHTML = "";
+  $id("bt-out").innerHTML = `<div class="spinner">Running walk-forward backtest…</div>`;
+  try {
+    const body = Object.assign(marketBody(), { gamma: parseFloat($id("bt-gamma").value) });
+    const r = await api("/api/backtest", body);
+    renderBacktest(r);
+  } catch (e) { $id("bt-out").innerHTML = ""; $id("bt-error").innerHTML = `<div class="error">${e.message}</div>`; }
+}
+const STRAT_COLORS = { tier_matched: "var(--series-1)", equal_weight: "var(--series-2)",
+  concentrated: "var(--critical)", sixty_forty: "var(--ink-muted)" };
+function renderBacktest(r) {
+  // equity-curve line chart (SVG, indexed to 100)
+  const W = 760, H = 260, PAD = 34;
+  const all = r.strategies.flatMap(s => s.equity_curve);
+  const base = r.strategies[0].equity_curve[0] || 1;
+  const norm = (v) => v / base * 100;
+  const lo = Math.min(...all.map(norm)), hi = Math.max(...all.map(norm));
+  const n = r.strategies[0].equity_curve.length;
+  const x = (i) => PAD + (W - 2*PAD) * i / (n - 1);
+  const y = (v) => H - PAD - (H - 2*PAD) * (norm(v) - lo) / (hi - lo || 1);
+  const paths = r.strategies.map(s => {
+    const d = s.equity_curve.map((v,i) => `${i===0?"M":"L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+    return `<path d="${d}" fill="none" stroke="${STRAT_COLORS[s.name]}" stroke-width="2"/>`;
+  }).join("");
+  const yticks = [lo, (lo+hi)/2, hi].map(v =>
+    `<text class="axis" x="4" y="${(H-PAD-(H-2*PAD)*(v-lo)/(hi-lo||1)+3).toFixed(0)}">${v.toFixed(0)}</text>`).join("");
+  const chart = `<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:600px">
+    <line class="gridline" x1="${PAD}" y1="${H-PAD}" x2="${W-PAD}" y2="${H-PAD}"/>
+    ${yticks}${paths}
+    <text class="axis" x="${PAD}" y="${H-8}">${r.start}</text>
+    <text class="axis" x="${W-PAD}" y="${H-8}" text-anchor="end">${r.end}</text>
+  </svg></div>`;
+  const legend = `<div class="strat-legend">${r.strategies.map(s =>
+    `<span><i style="background:${STRAT_COLORS[s.name]}"></i>${s.label}</span>`).join("")}</div>`;
+
+  const fmtM = (m, k, pct=true, dp=1) => m[k] == null ? "—" : (pct ? fmtSPct(m[k], dp) : m[k].toFixed(2));
+  const rows = r.strategies.map(s => {
+    const m = s.metrics;
+    return `<tr>
+      <td><span style="color:${STRAT_COLORS[s.name]}">●</span> ${s.label}</td>
+      <td class="num">${fmtSPct(m.cagr)}</td>
+      <td class="num">${fmtPct(m.volatility)}</td>
+      <td class="num">${m.sharpe.toFixed(2)}</td>
+      <td class="num" style="color:var(--critical)">${fmtPct(m.max_drawdown)}</td>
+      <td class="num" style="color:var(--critical)">${fmtPct(m.worst_month)}</td>
+      <td class="num">${m.final_multiple.toFixed(2)}×</td></tr>`;
+  }).join("");
+
+  $id("bt-out").innerHTML = `
+    ${r.headline ? `<div class="note"><b>Result:</b> ${r.headline}</div>` : ""}
+    ${legend}${chart}
+    <div class="muted">Growth of $10,000, indexed to 100 at the start · ${r.rebalances} rebalances · ${r.start} → ${r.end}</div>
+    <h2 style="margin-top:16px">The numbers</h2>
+    <div style="overflow-x:auto"><table>
+      <tr><th>Strategy</th><th class="num">CAGR</th><th class="num">Volatility</th><th class="num">Sharpe</th>
+        <th class="num">Max drawdown</th><th class="num">Worst month</th><th class="num">Final</th></tr>
+      ${rows}
+    </table></div>
+    <div class="muted" style="margin-top:8px">Sharpe = return per unit of risk (higher is better).
+    Max drawdown = worst peak-to-trough fall (the number that makes people sell). "Performance-chasing"
+    = 100% in the recent top performer; a stand-in for undisciplined investing. Past performance does
+    not predict future results.</div>`;
+}
 
 /* ================================== boot ================================== */
 render();

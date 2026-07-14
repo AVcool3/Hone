@@ -370,23 +370,26 @@ function openAuthModal() {
   $id("au-signin").onclick = () => run((e,p) => Auth.signIn(e,p));
   $id("au-signup").onclick = () => run((e,p) => Auth.signUp(e,p));
 }
+async function fillSavedList(el, onChange) {
+  const items = await Auth.listPortfolios();
+  el.innerHTML = items.length ? items.map(it => `
+    <div class="saved-item">
+      <span><b>${it.name}</b> <span class="muted">γ ${(it.data?.gamma != null ? Number(it.data.gamma).toFixed(2) : "—")}${it.data?.tier ? ` · Tier ${it.data.tier}` : ""}</span></span>
+      <span><button class="ghost" data-load="${it.id}">Load</button>
+        <button class="ghost" data-del="${it.id}">✕</button></span>
+    </div>`).join("") : `<div class="muted">No saved portfolios yet. Run through the flow and click "Save this portfolio" on the summary page.</div>`;
+  el.querySelectorAll("[data-load]").forEach(b =>
+    b.onclick = () => { const it = items.find(x => x.id == b.dataset.load); loadSaved(it); });
+  el.querySelectorAll("[data-del]").forEach(b =>
+    b.onclick = async () => { await Auth.deletePortfolio(b.dataset.del); if (onChange) onChange(); });
+}
 async function openSavedModal() {
   modal(`<h2>Saved portfolios</h2><div id="sv-list"><div class="spinner">Loading…</div></div>
     <div class="navrow"><button class="ghost" id="sv-close">Close</button>
       <button class="primary" id="sv-save">Save current</button></div>`);
   $id("sv-close").onclick = closeModal;
   $id("sv-save").onclick = saveCurrent;
-  const items = await Auth.listPortfolios();
-  $id("sv-list").innerHTML = items.length ? items.map(it => `
-    <div class="saved-item">
-      <span><b>${it.name}</b> <span class="muted">γ ${(it.data?.gamma ?? "—")}</span></span>
-      <span><button class="ghost" data-load="${it.id}">Load</button>
-        <button class="ghost" data-del="${it.id}">✕</button></span>
-    </div>`).join("") : `<div class="muted">No saved portfolios yet. Run through the flow and click "Save current".</div>`;
-  $id("sv-list").querySelectorAll("[data-load]").forEach(b =>
-    b.onclick = () => { const it = items.find(x => x.id == b.dataset.load); loadSaved(it); });
-  $id("sv-list").querySelectorAll("[data-del]").forEach(b =>
-    b.onclick = async () => { await Auth.deletePortfolio(b.dataset.del); openSavedModal(); });
+  await fillSavedList($id("sv-list"), openSavedModal);
 }
 async function saveCurrent() {
   const name = prompt("Name this portfolio:", `Portfolio ${new Date().toLocaleDateString()}`);
@@ -474,6 +477,47 @@ function barsCompare(rows, maxW) {
 const PAGES = {};
 
 /* ------------------------------- 1. start -------------------------------- */
+function startAccountHTML() {
+  if (!Auth.enabled) return "";
+  const u = Auth.user();
+  if (!u) return `
+    <h2>Your account</h2>
+    <p class="muted" style="margin-bottom:8px">Sign in to save portfolios (your γ, tier, and views) and reload them from any device.</p>
+    <div class="row">
+      <label class="field"><span>Email</span><input type="text" id="st-email" autocomplete="email"></label>
+      <label class="field"><span>Password</span><input type="password" id="st-pass" autocomplete="current-password"></label>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="primary" id="st-signin">Sign in</button>
+      <button class="ghost" id="st-signup">Create account</button>
+      <span class="muted" id="st-auth-note">or continue below without an account</span>
+    </div>
+    <div id="st-auth-err"></div>`;
+  return `
+    <h2>Your account</h2>
+    <div class="muted" style="margin-bottom:6px">Signed in as <b>${u.email}</b> ·
+      <a href="#" id="st-signout" class="link">sign out</a></div>
+    <h2 style="font-size:14px">Saved portfolios</h2>
+    <div id="st-saved"><div class="spinner">Loading…</div></div>`;
+}
+function bindStartAccount() {
+  if (!Auth.enabled) return;
+  const u = Auth.user();
+  if (!u) {
+    const run = async (fn) => {
+      const email = $id("st-email").value.trim(), pass = $id("st-pass").value;
+      if (!email || !pass) { $id("st-auth-err").innerHTML = `<div class="error">Enter an email and password.</div>`; return; }
+      $id("st-auth-err").innerHTML = `<div class="spinner">Working…</div>`;
+      try { await fn(email, pass); renderAccountBar(); PAGES.start(); }
+      catch (e) { $id("st-auth-err").innerHTML = `<div class="error">${e.message}</div>`; }
+    };
+    $id("st-signin").onclick = () => run((e,p) => Auth.signIn(e,p));
+    $id("st-signup").onclick = () => run((e,p) => Auth.signUp(e,p));
+  } else {
+    $id("st-signout").onclick = (ev) => { ev.preventDefault(); Auth.signOut(); renderAccountBar(); PAGES.start(); };
+    fillSavedList($id("st-saved"), () => PAGES.start());
+  }
+}
 PAGES.start = () => {
   const demo = S.demo !== false;
   $id("page").innerHTML = `
@@ -486,6 +530,8 @@ PAGES.start = () => {
     your convictions, and how to hedge what you can't stomach.</p>
     <p class="lead"><a href="#/tutorial" class="link">New here? Read the walkthrough</a>
       · <a href="#/analytics" class="link">See the evidence &amp; backtest</a></p>
+
+    ${startAccountHTML()}
 
     <h2>Data source</h2>
     <label class="field" style="display:flex;align-items:center;gap:8px">
@@ -516,6 +562,7 @@ PAGES.start = () => {
     const g = parseFloat(v);
     if (!isNaN(g)) { S.gamma = g; S.profile = null; save(); go("portfolio"); }
   };
+  bindStartAccount();
 };
 
 /* -------------------------------- 2. quiz -------------------------------- */

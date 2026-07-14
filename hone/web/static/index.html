@@ -166,9 +166,14 @@
   .account-bar button { background: none; border: 1px solid var(--border); color: var(--ink-2);
     border-radius: 7px; padding: 5px 11px; font-size: 13px; cursor: pointer; font-family: inherit; }
   .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 60;
-    display: flex; align-items: center; justify-content: center; padding: 20px; }
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    animation: fadein 0.15s ease-out; }
   .modal { background: var(--surface-1); border-radius: 14px; padding: 24px; max-width: 420px; width: 100%;
-    border: 1px solid var(--border); }
+    border: 1px solid var(--border); animation: pop 0.18s ease-out;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25); }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pop { from { opacity: 0; transform: scale(0.96) translateY(6px); }
+                   to { opacity: 1; transform: none; } }
   .modal h2 { margin: 0 0 12px; font-size: 17px; }
   .saved-item { display: flex; justify-content: space-between; align-items: center; gap: 10px;
     padding: 9px 0; border-bottom: 1px solid var(--grid); font-size: 14px; }
@@ -349,26 +354,41 @@ function modal(html) {
   back.className = "modal-back"; back.id = "modal-back";
   back.innerHTML = `<div class="modal">${html}</div>`;
   back.onclick = (e) => { if (e.target === back) closeModal(); };
+  back._esc = (e) => { if (e.key === "Escape") closeModal(); };
+  document.addEventListener("keydown", back._esc);
   document.body.appendChild(back);
 }
-function closeModal() { const m = $id("modal-back"); if (m) m.remove(); }
+function closeModal() {
+  const m = $id("modal-back");
+  if (m) { document.removeEventListener("keydown", m._esc); m.remove(); }
+}
 function openAuthModal() {
   modal(`<h2>Sign in to Hone</h2>
-    <label class="field"><span>Email</span><input type="text" id="au-email"></label>
-    <label class="field"><span>Password</span><input type="password" id="au-pass"></label>
+    <p class="muted" style="margin-bottom:12px">Saves your risk profile and portfolios so you can reload them from any device. Your Alpaca keys are never stored.</p>
+    <label class="field"><span>Email</span><input type="text" id="au-email" autocomplete="email"></label>
+    <label class="field"><span>Password</span><input type="password" id="au-pass" autocomplete="current-password"></label>
     <div id="au-err"></div>
     <div class="navrow"><button class="ghost" id="au-cancel">Cancel</button>
       <span><button class="ghost" id="au-signup">Create account</button>
       <button class="primary" id="au-signin">Sign in</button></span></div>`);
   const run = async (fn) => {
     const email = $id("au-email").value.trim(), pass = $id("au-pass").value;
+    if (!email || !pass) { $id("au-err").innerHTML = `<div class="error">Enter an email and password.</div>`; return; }
     $id("au-err").innerHTML = `<div class="spinner">Working…</div>`;
-    try { await fn(email, pass); closeModal(); renderAccountBar(); }
+    try {
+      await fn(email, pass);
+      closeModal();
+      render();  // refresh the current page in place — no navigation
+    }
     catch (e) { $id("au-err").innerHTML = `<div class="error">${e.message}</div>`; }
   };
   $id("au-cancel").onclick = closeModal;
   $id("au-signin").onclick = () => run((e,p) => Auth.signIn(e,p));
   $id("au-signup").onclick = () => run((e,p) => Auth.signUp(e,p));
+  // seamless keyboard flow: autofocus, Enter submits
+  $id("au-email").focus();
+  [$id("au-email"), $id("au-pass")].forEach(inp =>
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") $id("au-signin").click(); }));
 }
 async function fillSavedList(el, onChange) {
   const items = await Auth.listPortfolios();
@@ -481,18 +501,10 @@ function startAccountHTML() {
   if (!Auth.enabled) return "";
   const u = Auth.user();
   if (!u) return `
-    <h2>Your account</h2>
-    <p class="muted" style="margin-bottom:8px">Sign in to save portfolios (your γ, tier, and views) and reload them from any device.</p>
-    <div class="row">
-      <label class="field"><span>Email</span><input type="text" id="st-email" autocomplete="email"></label>
-      <label class="field"><span>Password</span><input type="password" id="st-pass" autocomplete="current-password"></label>
-    </div>
-    <div style="display:flex;gap:10px;align-items:center">
-      <button class="primary" id="st-signin">Sign in</button>
-      <button class="ghost" id="st-signup">Create account</button>
-      <span class="muted" id="st-auth-note">or continue below without an account</span>
-    </div>
-    <div id="st-auth-err"></div>`;
+    <div class="note" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <span>Save your portfolios and reload them from any device.</span>
+      <button class="primary" id="st-open-auth" style="padding:8px 16px">Sign in / Create account</button>
+    </div>`;
   return `
     <h2>Your account</h2>
     <div class="muted" style="margin-bottom:6px">Signed in as <b>${u.email}</b> ·
@@ -504,15 +516,7 @@ function bindStartAccount() {
   if (!Auth.enabled) return;
   const u = Auth.user();
   if (!u) {
-    const run = async (fn) => {
-      const email = $id("st-email").value.trim(), pass = $id("st-pass").value;
-      if (!email || !pass) { $id("st-auth-err").innerHTML = `<div class="error">Enter an email and password.</div>`; return; }
-      $id("st-auth-err").innerHTML = `<div class="spinner">Working…</div>`;
-      try { await fn(email, pass); renderAccountBar(); PAGES.start(); }
-      catch (e) { $id("st-auth-err").innerHTML = `<div class="error">${e.message}</div>`; }
-    };
-    $id("st-signin").onclick = () => run((e,p) => Auth.signIn(e,p));
-    $id("st-signup").onclick = () => run((e,p) => Auth.signUp(e,p));
+    $id("st-open-auth").onclick = openAuthModal;
   } else {
     $id("st-signout").onclick = (ev) => { ev.preventDefault(); Auth.signOut(); renderAccountBar(); PAGES.start(); };
     fillSavedList($id("st-saved"), () => PAGES.start());

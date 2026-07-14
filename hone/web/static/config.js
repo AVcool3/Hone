@@ -10,6 +10,7 @@
 // In a hosted deploy you can instead inject them via a build step or a
 // small endpoint; a static file is the simplest starting point.
 window.HONE_CONFIG = {
-  supabaseUrl: "",       // e.g. "https://abcdefgh.supabase.co"
-  supabaseAnonKey: "",   // the project's anon/public key
+  supabaseUrl: "https://jmovvvgncslnqxoxjumh.supabase.co",
+  // Publishable (browser-safe) key — NOT the sb_secret_ key.
+  supabaseAnonKey: "sb_publishable_uscZE3056c12p_q2eVQDzQ_am1Wor4i",
 };

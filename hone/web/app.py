@@ -156,6 +156,8 @@ def create_app() -> FastAPI:
     _STATIC_WHITELIST = {
         "config.js": "application/javascript",
         "demo.mp4": "video/mp4",
+        "og.png": "image/png",
+        "robots.txt": "text/plain",
     }
 
     @app.get("/{asset}", include_in_schema=False)

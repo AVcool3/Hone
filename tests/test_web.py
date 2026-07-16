@@ -16,6 +16,28 @@ class TestStatic:
         assert "Hone" in res.text
         assert "questionnaire" in res.text.lower()
 
+    def test_landing_is_crawler_visible(self, client):
+        """The value proposition must be readable without JavaScript."""
+        html = client.get("/").text
+        assert "disciplined position sizes" in html
+        assert "Personalized Portfolio Optimization" in html  # title descriptor
+        assert '<meta name="description"' in html
+        assert 'property="og:image"' in html
+        assert 'property="og:title"' in html
+        # funnel + trust sections present in raw HTML
+        assert "The problem" in html
+        assert "How it works" in html
+        assert "Built to be trusted" in html
+        assert "Is this real money?" in html
+
+    def test_og_image_and_robots_served(self, client):
+        og = client.get("/og.png")
+        assert og.status_code == 200
+        assert og.headers["content-type"] == "image/png"
+        r = client.get("/robots.txt")
+        assert r.status_code == 200
+        assert "User-agent" in r.text
+
     def test_config_js_served(self, client):
         res = client.get("/config.js")
         assert res.status_code == 200

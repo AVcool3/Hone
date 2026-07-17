@@ -1158,7 +1158,7 @@ async function runGuidedDemo() {
     setCap(text);
     await new Promise(r => setTimeout(r, step === "start" ? 3200 : 5200));
   }
-  if (!RUNTIME.demoStop) cap.remove();
+  if (!RUNTIME.demoStop) { cap.remove(); go("start"); }
 }
 
 /* ------------------------------ analytics -------------------------------- */

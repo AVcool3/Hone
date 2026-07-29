@@ -12,3 +12,15 @@ services:
       # Uncomment to password-gate the whole site:
       # - key: HONE_ACCESS_PASSWORD
       #   sync: false
+  # Side product: same image and protocol, crypto asset class.
+  # Attach e.g. crypto.studiohone.com under Settings -> Custom Domains.
+  - type: web
+    name: studiohone-crypto
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: HONE_PUBLIC
+        value: "1"
+      - key: HONE_ASSET_CLASS
+        value: "crypto"

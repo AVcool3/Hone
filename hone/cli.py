@@ -216,7 +216,16 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument(
         "--port", type=int, default=int(os.environ.get("PORT", "8000"))
     )
+    w.add_argument(
+        "--asset-class",
+        choices=["equities", "crypto"],
+        default=None,
+        help="which product to serve (default: HONE_ASSET_CLASS or equities)",
+    )
     w.set_defaults(func=cmd_serve)
+
+    cd = sub.add_parser("crypto-demo", help="full crypto pipeline on synthetic data")
+    cd.set_defaults(func=cmd_crypto_demo)
 
     return parser
 
@@ -229,8 +238,40 @@ def cmd_serve(args) -> int:
             "error: web dependencies missing — install with pip install 'hone[web]' "
             "or pip install fastapi 'uvicorn[standard]'"
         )
-    print(f"Hone web app on http://{args.host}:{args.port}")
+    if getattr(args, "asset_class", None):
+        os.environ["HONE_ASSET_CLASS"] = args.asset_class
+    label = "Hone Crypto" if os.environ.get("HONE_ASSET_CLASS") == "crypto" else "Hone"
+    print(f"{label} web app on http://{args.host}:{args.port}")
     uvicorn.run("hone.web.app:app", host=args.host, port=args.port)
+    return 0
+
+
+def cmd_crypto_demo(args) -> int:
+    """The same pipeline as `demo`, on a crypto universe."""
+    from .crypto.pipeline import rebalance_crypto
+    from .crypto.universe import synthetic_crypto_universe
+
+    print("=== Step 1: risk questionnaire (simulated consistent subject) ===")
+    vec = ["A"] * 7 + ["B"] * 3
+    profile = profile_from_choices([vec, vec, vec])
+    print(profile.summary())
+
+    print("\n=== Step 2-4: crypto covariance, view, Black-Litterman + MVO, hedges ===")
+    prices, weights = synthetic_crypto_universe()
+    sol = float(prices["SOL/USD"].iloc[-1])
+    view = View(
+        ticker="SOL/USD",
+        current_price=sol,
+        target_price=sol * 1.5,
+        confidence=0.6,
+        horizon_days=365,
+    )
+    print(f"\nUser view: {view.describe()}\n")
+    report = rebalance_crypto(
+        prices, weights, gamma=profile.gamma, views=[view],
+        max_weight=0.35, portfolio_value=20_000.0,
+    )
+    print(report.summary())
     return 0
 
 

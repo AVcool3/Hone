@@ -42,6 +42,7 @@ class Position:
     avg_entry_price: float
     current_price: float
     unrealized_pl: float
+    asset_class: str | None = None
 
     @classmethod
     def from_api(cls, raw: Mapping[str, Any]) -> "Position":
@@ -52,6 +53,7 @@ class Position:
             avg_entry_price=float(raw["avg_entry_price"]),
             current_price=float(raw["current_price"]),
             unrealized_pl=float(raw.get("unrealized_pl", 0.0)),
+            asset_class=raw.get("asset_class"),
         )
 
 
@@ -211,6 +213,86 @@ class AlpacaClient:
         return pd.Series(
             {s: float(t["p"]) for s, t in trades.items()}, dtype=float
         ).reindex(symbols)
+
+    # ------------------------------------------------------------ crypto
+    def get_crypto_bars(
+        self,
+        symbols: Iterable[str],
+        start: str | date | datetime,
+        end: str | date | datetime | None = None,
+        timeframe: str = "1Day",
+        loc: str = "us",
+        limit: int = 10_000,
+    ) -> pd.DataFrame:
+        """Daily close prices for crypto pairs (e.g. ``BTC/USD``).
+
+        Uses Alpaca's crypto market-data endpoint, which requires no
+        market-data subscription. Returns a DataFrame indexed by
+        timestamp with one column per symbol, matching the shape
+        :func:`~hone.market_data.covariance.portfolio_covariance` expects.
+        """
+        symbols = list(symbols)
+        params: dict[str, Any] = {
+            "symbols": ",".join(symbols),
+            "timeframe": timeframe,
+            "start": _iso(start),
+            "limit": limit,
+        }
+        if end is not None:
+            params["end"] = _iso(end)
+
+        frames: dict[str, pd.Series] = {}
+        page_token: str | None = None
+        while True:
+            if page_token:
+                params["page_token"] = page_token
+            data = self._request(
+                "GET", self.data_url, f"/v1beta3/crypto/{loc}/bars", params=params
+            )
+            for symbol, bars in (data.get("bars") or {}).items():
+                closes = pd.Series(
+                    {pd.Timestamp(b["t"]): float(b["c"]) for b in bars}, name=symbol
+                )
+                frames[symbol] = (
+                    pd.concat([frames[symbol], closes]) if symbol in frames else closes
+                )
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+
+        if not frames:
+            return pd.DataFrame(columns=symbols)
+        prices = pd.DataFrame(frames).sort_index()
+        prices = prices[~prices.index.duplicated(keep="last")]
+        return prices.reindex(columns=symbols)
+
+    def get_crypto_positions(self) -> list[Position]:
+        """Crypto positions from the paper account.
+
+        Alpaca reports crypto positions on the same ``/v2/positions``
+        endpoint with concatenated symbols (``BTCUSD``); this filters to
+        crypto and normalizes symbols to the ``BTC/USD`` data form.
+        """
+        from ..crypto.universe import normalize_symbol
+
+        out = []
+        for p in self.get_positions():
+            asset_class = getattr(p, "asset_class", None)
+            looks_crypto = (asset_class == "crypto") or p.symbol.upper().endswith(
+                ("USD", "USDT", "USDC")
+            )
+            if looks_crypto:
+                out.append(
+                    Position(
+                        symbol=normalize_symbol(p.symbol),
+                        qty=p.qty,
+                        market_value=p.market_value,
+                        avg_entry_price=p.avg_entry_price,
+                        current_price=p.current_price,
+                        unrealized_pl=p.unrealized_pl,
+                    )
+                )
+        return out
 
     # ----------------------------------------------------------- options
     def get_option_chain(

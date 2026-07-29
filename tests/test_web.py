@@ -251,7 +251,8 @@ class TestHedge:
         plan = res.json()
         assert plan["needs_hedge"] is True
         kinds = {s["kind"] for s in plan["suggestions"]}
-        assert kinds == {"short", "protective_put", "collar"}
+        assert kinds == {"cash", "short", "protective_put", "collar"}
+        assert plan["suggestions"][0]["kind"] == "cash"
         assert plan["target_volatility"] < plan["current_volatility"]
 
     def test_risk_tolerant_needs_nothing(self, client):

@@ -31,7 +31,8 @@ class TestBacktest:
         prices, _ = synthetic_universe(n_days=700)
         r = run_backtest(prices, gamma=1.2)
         names = {s.name for s in r.strategies}
-        assert names == {"tier_matched", "equal_weight", "concentrated", "sixty_forty"}
+        assert names == {"tier_matched", "market_hold", "equal_weight",
+                         "concentrated", "sixty_forty"}
         assert r.rebalances > 5
         for s in r.strategies:
             assert len(s.equity_curve) == len(s.dates)
@@ -65,7 +66,8 @@ class TestBacktestApi:
         res = client.post("/api/backtest", json={"gamma": 1.5, "demo": True})
         assert res.status_code == 200
         body = res.json()
-        assert len(body["strategies"]) == 4
+        assert len(body["strategies"]) == 5
+        assert "market_hold" in {x["name"] for x in body["strategies"]}
         assert body["rebalances"] > 0
         hone = next(s for s in body["strategies"] if s["name"] == "tier_matched")
         assert "sharpe" in hone["metrics"]

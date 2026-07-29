@@ -57,6 +57,33 @@ DEMO_PORTFOLIO_VALUE = 25_000.0
 MARKET_PREMIUM = 0.05
 
 
+def asset_class() -> str:
+    """'equities' (default) or 'crypto', from HONE_ASSET_CLASS.
+
+    One codebase, two products: the quantitative protocol is identical
+    and only the market data, calendar, proxy asset, stress scenarios and
+    copy differ. Deploy the same image twice with different env vars.
+    """
+    v = os.environ.get("HONE_ASSET_CLASS", "equities").strip().lower()
+    return "crypto" if v in ("crypto", "cryptocurrency", "digital") else "equities"
+
+
+def is_crypto() -> bool:
+    return asset_class() == "crypto"
+
+
+def _periods_per_year() -> int:
+    from ..crypto.universe import CRYPTO_PERIODS_PER_YEAR
+
+    return CRYPTO_PERIODS_PER_YEAR if is_crypto() else 252
+
+
+def _market_proxy(default: str = "SPY") -> str:
+    from ..crypto.universe import MARKET_PROXY
+
+    return MARKET_PROXY if is_crypto() else default
+
+
 def _tier_info(gamma: float) -> s.TierInfo:
     t = gamma_to_tier(gamma)
     return s.TierInfo(
@@ -100,8 +127,14 @@ def _load_market(
 ) -> tuple[pd.DataFrame, pd.Series]:
     """(prices, current weights) from demo data or the Alpaca account."""
     if demo:
+        if is_crypto():
+            from ..crypto.universe import synthetic_crypto_universe
+
+            return synthetic_crypto_universe()
         prices, weights = synthetic_universe()
         return prices, weights
+    if is_crypto():
+        return _load_crypto_market(creds, extra_symbols, hedge_instrument, lookback_days)
     client = _client(creds)
     try:
         weights = client.portfolio_weights()
@@ -116,6 +149,42 @@ def _load_market(
         )
         start = date.today() - timedelta(days=int(lookback_days * 1.6))
         prices = client.get_bars(symbols, start=start)
+    except AlpacaError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return prices.tail(lookback_days), weights
+
+
+def _load_crypto_market(
+    creds: s.AlpacaCredentials | None,
+    extra_symbols: list[str],
+    market_proxy: str,
+    lookback_days: int,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """(prices, weights) for the crypto side of the paper account."""
+    from ..crypto.universe import normalize_symbol
+
+    client = _client(creds)
+    try:
+        positions = client.get_crypto_positions()
+        if not positions:
+            raise HTTPException(
+                status_code=400,
+                detail="No crypto positions in the Alpaca paper account. Buy a "
+                "few paper crypto positions first, or use demo mode.",
+            )
+        gross = sum(abs(p.market_value) for p in positions) or 1.0
+        weights = pd.Series({p.symbol: p.market_value / gross for p in positions})
+        symbols = sorted(
+            set(weights.index)
+            | {normalize_symbol(t) for t in extra_symbols}
+            | {normalize_symbol(market_proxy)}
+        )
+        start = date.today() - timedelta(days=int(lookback_days * 1.2))
+        prices = client.get_crypto_bars(symbols, start=start)
+        prices = prices.dropna(axis=1, how="all")
+        weights = weights.reindex(
+            [c for c in prices.columns if c in weights.index]
+        ).fillna(0.0)
     except AlpacaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return prices.tail(lookback_days), weights
@@ -151,6 +220,49 @@ def create_app() -> FastAPI:
     @app.get("/api/health", include_in_schema=False)
     def health() -> dict:
         return {"status": "ok"}
+
+    @app.get("/api/config", include_in_schema=False)
+    def config() -> dict:
+        """Asset-class configuration the frontend uses to swap copy."""
+        crypto = is_crypto()
+        return {
+            "asset_class": asset_class(),
+            "auth_enabled": True,
+            "market_proxy": _market_proxy(),
+            "periods_per_year": _periods_per_year(),
+            "copy": {
+                "product": "Hone Crypto" if crypto else "Hone",
+                "descriptor": (
+                    "Personalized Crypto Portfolio Optimization"
+                    if crypto
+                    else "Personalized Portfolio Optimization"
+                ),
+                "asset_word": "coins" if crypto else "stocks",
+                "asset_word_singular": "coin" if crypto else "stock",
+                "holdings_word": "coins you hold" if crypto else "stocks you hold",
+                "example_ticker": "SOL" if crypto else "TSLA",
+                "example_target": "$260" if crypto else "$220",
+                "market_name": "Bitcoin" if crypto else "the S&P 500",
+                "cash_word": "stablecoins" if crypto else "cash",
+                "account_word": (
+                    "Alpaca crypto paper account" if crypto else "Alpaca paper account"
+                ),
+                "hedge_note": (
+                    "Crypto hedges are the stablecoin leg and a short of the market "
+                    "proxy — listed crypto options are not available through the "
+                    "brokerage integration."
+                    if crypto
+                    else "Hedges include cash, an index short, and option overlays."
+                ),
+                "volatility_note": (
+                    "Crypto volatility runs 50-100%+ a year, several times equity "
+                    "levels, and drawdowns of 80% have happened twice. Position "
+                    "sizes here will look small for a reason."
+                    if crypto
+                    else ""
+                ),
+            },
+        }
 
     # Serve whitelisted static assets (config, optional demo video).
     _STATIC_WHITELIST = {
@@ -220,9 +332,10 @@ def create_app() -> FastAPI:
         prices: pd.DataFrame,
         weights: pd.Series,
         stated_gamma: float | None,
-        hedge_instrument: str = "SPY",
+        hedge_instrument: str | None = None,
     ) -> s.PortfolioAnalysis:
-        report = portfolio_covariance(prices)
+        hedge_instrument = hedge_instrument or _market_proxy()
+        report = portfolio_covariance(prices, annualize=_periods_per_year())
         sigma = report.covariance
         vol = portfolio_volatility(weights, sigma)
         beta = portfolio_beta(weights, sigma, hedge_instrument)
@@ -240,7 +353,9 @@ def create_app() -> FastAPI:
     @app.post("/api/portfolio", response_model=s.PortfolioResponse)
     def get_portfolio(req: s.PortfolioRequest) -> s.PortfolioResponse:
         if req.demo:
-            prices, weights = synthetic_universe()
+            prices, weights = _load_market(
+                True, req.credentials, [], _market_proxy(), req.lookback_days
+            )
             positions = [
                 s.PositionOut(symbol=sym, weight=float(w))
                 for sym, w in weights.sort_values(ascending=False).items()
@@ -256,7 +371,7 @@ def create_app() -> FastAPI:
             )
         client = _client(req.credentials)
         try:
-            raw = client.get_positions()
+            raw = client.get_crypto_positions() if is_crypto() else client.get_positions()
             equity = None
             try:
                 equity = float(client.get_account().get("equity") or 0) or None
@@ -278,7 +393,7 @@ def create_app() -> FastAPI:
         if req.analyze and positions:
             weights = pd.Series({p.symbol: p.weight for p in positions})
             prices, _ = _load_market(
-                False, req.credentials, [], "SPY", req.lookback_days
+                False, req.credentials, [], _market_proxy(), req.lookback_days
             )
             try:
                 analysis = _analysis(prices, weights, req.stated_gamma)
@@ -294,16 +409,21 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------ optimize
     @app.post("/api/optimize", response_model=s.OptimizeResponse)
     def optimize(req: s.OptimizeRequest) -> s.OptimizeResponse:
+        proxy = _market_proxy(req.hedge_instrument)
         prices, weights = _load_market(
             req.demo,
             req.credentials,
             [v.ticker for v in req.views],
-            req.hedge_instrument,
+            proxy,
             req.lookback_days,
         )
         views: list[View] = []
         for v in req.views:
             ticker = v.ticker.upper()
+            if is_crypto():
+                from ..crypto.universe import normalize_symbol
+
+                ticker = normalize_symbol(ticker)
             if ticker not in prices.columns or prices[ticker].dropna().empty:
                 raise HTTPException(
                     status_code=422, detail=f"No price history for {ticker}"
@@ -329,7 +449,10 @@ def create_app() -> FastAPI:
                     value = float(client.get_account().get("equity") or 0) or None
                 # Live option chain for accurate hedge pricing (best-effort:
                 # falls back to Black-Scholes if unavailable/not entitled).
+                # Crypto has no listed options through this integration.
                 try:
+                    if is_crypto():
+                        raise AlpacaError("crypto: no listed options")
                     from datetime import date, timedelta
 
                     option_chain = client.get_option_chain(
@@ -343,21 +466,36 @@ def create_app() -> FastAPI:
                 value = value if value is not None else None
 
         try:
-            report = rebalance(
-                prices,
-                weights,
-                gamma=req.gamma,
-                views=views,
-                covariance_method=req.cov_method,
-                long_only=req.long_only,
-                max_weight=req.max_weight,
-                hedge_instrument=req.hedge_instrument,
-                hedge_spot=float(prices[req.hedge_instrument].iloc[-1])
-                if req.hedge_instrument in prices.columns
-                else 100.0,
-                portfolio_value=value,
-                option_chain=option_chain,
-            )
+            if is_crypto():
+                from ..crypto.pipeline import rebalance_crypto
+
+                report = rebalance_crypto(
+                    prices,
+                    weights,
+                    gamma=req.gamma,
+                    views=views,
+                    covariance_method=req.cov_method,
+                    long_only=req.long_only,
+                    max_weight=req.max_weight,
+                    market_proxy=proxy,
+                    portfolio_value=value,
+                )
+            else:
+                report = rebalance(
+                    prices,
+                    weights,
+                    gamma=req.gamma,
+                    views=views,
+                    covariance_method=req.cov_method,
+                    long_only=req.long_only,
+                    max_weight=req.max_weight,
+                    hedge_instrument=proxy,
+                    hedge_spot=float(prices[proxy].iloc[-1])
+                    if proxy in prices.columns
+                    else 100.0,
+                    portfolio_value=value,
+                    option_chain=option_chain,
+                )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
 
@@ -437,6 +575,7 @@ def create_app() -> FastAPI:
                         hedge_notional_fraction=x.hedge_notional_fraction,
                         hedged_volatility=x.hedged_volatility,
                         est_annual_cost_fraction=x.est_annual_cost_fraction,
+                        warning=x.warning,
                         details=x.details,
                     )
                     for x in plan.suggestions
@@ -467,21 +606,27 @@ def create_app() -> FastAPI:
         from ..backtest.engine import run_backtest
 
         if req.demo:
-            prices, _ = synthetic_universe(n_days=max(req.lookback_days + 80, 600))
+            if is_crypto():
+                from ..crypto.universe import synthetic_crypto_universe
+
+                prices, _ = synthetic_crypto_universe(
+                    n_days=max(req.lookback_days + 80, 700)
+                )
+            else:
+                prices, _ = synthetic_universe(n_days=max(req.lookback_days + 80, 600))
         else:
-            symbols = req.symbols
-            if not symbols:
-                weights = _client(req.credentials).portfolio_weights()
-                if weights.empty:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="No holdings to backtest. Add positions or pass symbols.",
-                    )
-                symbols = sorted(set(weights.index) | {"SPY"})
-            start = date.today() - timedelta(days=int(req.lookback_days * 1.6))
-            prices = _client(req.credentials).get_bars(symbols, start=start)
+            prices, _ = _load_market(
+                False, req.credentials, req.symbols or [], _market_proxy(),
+                req.lookback_days,
+            )
         try:
-            result = run_backtest(prices, gamma=req.gamma, max_weight=req.max_weight)
+            result = run_backtest(
+                prices,
+                gamma=req.gamma,
+                max_weight=req.max_weight,
+                market=_market_proxy(),
+                periods_per_year=_periods_per_year(),
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         return s.BacktestResponse(

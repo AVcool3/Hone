@@ -140,7 +140,8 @@ class HedgeSuggestionOut(BaseModel):
     hedge_notional_fraction: float
     hedged_volatility: float | None
     est_annual_cost_fraction: float
-    details: dict
+    warning: str | None = None
+    details: dict = {}
 
 
 class StressScenarioOut(BaseModel):

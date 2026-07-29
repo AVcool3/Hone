@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 from ..market_data.covariance import shrinkage_covariance, returns_from_prices
-from ..optimization.black_litterman import implied_equilibrium_returns
+from ..optimization.black_litterman import calibrate_delta, implied_equilibrium_returns
 from ..optimization.mvo import mvo_weights
 
 TRADING_DAYS = 252
@@ -55,7 +55,7 @@ def _tier_matched_weights(window: pd.DataFrame, gamma: float, max_weight: float,
     sigma = shrinkage_covariance(rets)
     n = sigma.shape[0]
     prior_w = pd.Series(np.full(n, 1.0 / n), index=sigma.index)
-    mu = implied_equilibrium_returns(sigma, prior_w, delta=max(gamma, 0.5))
+    mu = implied_equilibrium_returns(sigma, prior_w, delta=calibrate_delta(sigma, prior_w))
     res = mvo_weights(mu, sigma, gamma, long_only=True, max_weight=max_weight)
     return res.weights
 
@@ -69,6 +69,22 @@ def _concentrated(window: pd.DataFrame, **_):
     trailing = window.iloc[-1] / window.iloc[0] - 1.0
     w = pd.Series(0.0, index=window.columns)
     w[trailing.idxmax()] = 1.0
+    return w
+
+
+def _market_hold(window: pd.DataFrame, market="SPY", **_):
+    """100% in the market proxy, bought and held.
+
+    The benchmark that actually matters: for equities this is SPY
+    buy-and-hold, for crypto it is BTC buy-and-hold. If a method cannot
+    justify itself against simply holding the market, it should say so.
+    """
+    cols = list(window.columns)
+    w = pd.Series(0.0, index=cols)
+    if market in cols:
+        w[market] = 1.0
+    else:
+        w[:] = 1.0 / len(cols)
     return w
 
 
@@ -87,12 +103,14 @@ def _sixty_forty(window: pd.DataFrame, market="SPY", **_):
 
 STRATEGIES = {
     "tier_matched": _tier_matched_weights,
+    "market_hold": _market_hold,
     "equal_weight": _equal_weight,
     "concentrated": _concentrated,
     "sixty_forty": _sixty_forty,
 }
 STRATEGY_LABELS = {
     "tier_matched": "Hone (tier-matched)",
+    "market_hold": "Buy & hold the market",
     "equal_weight": "Equal weight (1/N)",
     "concentrated": "Performance-chasing",
     "sixty_forty": "60/40 balanced",
@@ -100,19 +118,26 @@ STRATEGY_LABELS = {
 
 
 # ----------------------------------------------------------------- metrics
-def performance_metrics(equity: pd.Series) -> dict[str, float]:
-    """Standard + behavioral metrics from a daily equity curve."""
+def performance_metrics(
+    equity: pd.Series, periods_per_year: int = TRADING_DAYS
+) -> dict[str, float]:
+    """Standard + behavioral metrics from a daily equity curve.
+
+    ``periods_per_year`` is 252 for equities and 365 for crypto (which
+    trades every day); it affects annualization only.
+    """
     equity = equity.dropna()
     rets = equity.pct_change().dropna()
     if len(rets) < 2:
         return {}
-    years = len(rets) / TRADING_DAYS
+    rf_daily = 0.04 / periods_per_year
+    years = len(rets) / periods_per_year
     cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1 if years > 0 else 0.0
-    vol = rets.std() * np.sqrt(TRADING_DAYS)
-    excess = rets - RISK_FREE_DAILY
-    sharpe = (excess.mean() / rets.std() * np.sqrt(TRADING_DAYS)) if rets.std() > 0 else 0.0
+    vol = rets.std() * np.sqrt(periods_per_year)
+    excess = rets - rf_daily
+    sharpe = (excess.mean() / rets.std() * np.sqrt(periods_per_year)) if rets.std() > 0 else 0.0
     downside = rets[rets < 0].std()
-    sortino = (excess.mean() / downside * np.sqrt(TRADING_DAYS)) if downside and downside > 0 else 0.0
+    sortino = (excess.mean() / downside * np.sqrt(periods_per_year)) if downside and downside > 0 else 0.0
     roll_max = equity.cummax()
     max_dd = ((equity - roll_max) / roll_max).min()
     monthly = equity.resample("ME").last().pct_change().dropna() if _has_datetime_index(equity) else rets
@@ -168,6 +193,7 @@ def run_backtest(
     max_weight: float = 0.35,
     market: str = "SPY",
     initial_value: float = 10_000.0,
+    periods_per_year: int = TRADING_DAYS,
 ) -> BacktestResult:
     """Walk-forward backtest across the built-in strategies."""
     prices = prices.sort_index().dropna(how="any")
@@ -212,13 +238,14 @@ def run_backtest(
                 label=STRATEGY_LABELS[name],
                 equity_curve=[round(x, 2) for x in curves[name]],
                 dates=curve_dates,
-                metrics=performance_metrics(eq),
+                metrics=performance_metrics(eq, periods_per_year),
             )
         )
 
     hone = next(s for s in strategies if s.name == "tier_matched")
     naive = next(s for s in strategies if s.name == "equal_weight")
-    headline = _headline(hone, naive)
+    hold = next((s for s in strategies if s.name == "market_hold"), None)
+    headline = _headline(hone, naive, hold)
 
     return BacktestResult(
         gamma=gamma,
@@ -231,7 +258,9 @@ def run_backtest(
     )
 
 
-def _headline(hone: StrategyResult, naive: StrategyResult) -> str:
+def _headline(
+    hone: StrategyResult, naive: StrategyResult, hold: StrategyResult | None = None
+) -> str:
     hm, nm = hone.metrics, naive.metrics
     if not hm or not nm:
         return ""
@@ -246,9 +275,25 @@ def _headline(hone: StrategyResult, naive: StrategyResult) -> str:
         )
     if hm["volatility"] < nm["volatility"]:
         parts.append(f"lower volatility ({hm['volatility']:.0%} vs {nm['volatility']:.0%})")
+    vs_hold = ""
+    if hold and hold.metrics:
+        km = hold.metrics
+        if hm["cagr"] < km["cagr"]:
+            vs_hold = (
+                f" Note the honest comparison: simply buying and holding the market "
+                f"returned {km['cagr']:+.1%}/yr versus {hm['cagr']:+.1%}/yr here — "
+                f"tier-matching bought a shallower drawdown ({hm['max_drawdown']:.0%} "
+                f"vs {km['max_drawdown']:.0%}), not more return."
+            )
+        else:
+            vs_hold = (
+                f" It also beat buying and holding the market "
+                f"({hm['cagr']:+.1%}/yr vs {km['cagr']:+.1%}/yr)."
+            )
     if not parts:
         return (
             "Over this period the tier-matched portfolio tracked the naive "
-            "baseline closely — its edge shows most in higher-dispersion markets."
+            "baseline closely — its edge shows most in higher-dispersion markets." + vs_hold
         )
-    return "Over this period, the tier-matched portfolio delivered " + "; ".join(parts) + "."
+    return ("Over this period, the tier-matched portfolio delivered "
+            + "; ".join(parts) + "." + vs_hold)

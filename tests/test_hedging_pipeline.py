@@ -106,7 +106,9 @@ class TestSuggestHedges:
         plan = suggest_hedges(w, sigma, mu, gamma=6.0)
         assert plan.needs_hedge
         kinds = {s.kind for s in plan.suggestions}
-        assert kinds == {"short", "protective_put", "collar"}
+        # cash leads (no derivatives needed), then the derivative overlays
+        assert kinds == {"cash", "short", "protective_put", "collar"}
+        assert plan.suggestions[0].kind == "cash"
         assert plan.target_volatility < plan.current_volatility
         # hedge instrument stats come from the covariance matrix itself
         short = next(s for s in plan.suggestions if s.kind == "short")

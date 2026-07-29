@@ -991,9 +991,16 @@ PAGES.hedge = () => {
     ${plan.scenarios.map(x => `<tr><td>${x.name}</td>
       <td class="num">${fmtSPct(x.market_shock, 0)}</td>
       <td class="num" style="color:var(--critical)">${fmtLoss(x.loss_usd)} (${fmtSPct(x.loss_fraction,0)})</td>
-      ${plan.needs_hedge ? `<td class="num" style="color:var(--good)">${x.hedged_loss_usd != null ? fmtLoss(x.hedged_loss_usd) : "—"}</td>` : ""}</tr>`).join("")}
+      ${plan.needs_hedge ? `<td class="num" style="color:var(--good)">${
+          x.hedged_loss_usd == null ? "—"
+          : (Math.abs(x.hedged_loss_usd) < 0.005 * (value || 1)
+              ? "≈ flat*" : fmtLoss(x.hedged_loss_usd))}</td>` : ""}</tr>`).join("")}
     </table>
-    <div class="muted">First-order (beta) approximation on ${value ? fmtMoney(value,0) : "your portfolio"}.</div>`;
+    <div class="muted">First-order (beta) approximation on ${value ? fmtMoney(value,0) : "your portfolio"}.
+    ${plan.suggestions.some(x => x.kind === "short" && x.hedge_notional_fraction > 0.5)
+      ? `*A hedge this large removes nearly all market exposure — you would be roughly flat, giving up the upside too, and paying financing to hold it.`
+      : ""}
+    In real crashes correlations converge and betas rise, so treat these as optimistic.</div>`;
   }
   const budget = value ? `
     <div class="tiles">
@@ -1011,12 +1018,13 @@ PAGES.hedge = () => {
       <p>${sug.description}</p>
       <div class="meta">${sug.hedged_volatility != null ? `Hedged volatility ≈ ${fmtPct(sug.hedged_volatility)} · ` : ""}
         Est. cost ≈ ${fmtPct(sug.est_annual_cost_fraction)} of portfolio/yr${value ? ` (${fmtMoney(sug.est_annual_cost_fraction*value,0)})` : ""}</div>
+      ${sug.warning ? `<div class="error" style="margin-top:8px">⚠︎ ${sug.warning}</div>` : ""}
     </div>`;}).join("");
 
   $id("page").innerHTML = `<div class="card">
     <h1>Hedging to your number</h1>
     <p class="lead">${plan.needs_hedge
-      ? "Your rebalanced portfolio still runs hotter than your tier's risk budget. Three ways to bring it down without selling your stocks:"
+      ? `Your rebalanced portfolio still runs hotter than your tier's risk budget. ${plan.suggestions.length === 1 ? "One way" : (plan.suggestions.length === 2 ? "Two ways" : plan.suggestions.length + " ways")} to bring it down:`
       : "Good news — your rebalanced portfolio already sits within your tier's risk budget. No hedge needed; here's the downside picture anyway."}</p>
     ${budget}
     ${scenarioBlock}
@@ -1289,9 +1297,84 @@ PAGES.signup = () => {
   $id("su-signin").onclick = (e) => { e.preventDefault(); go("start"); setTimeout(openAuthModal, 60); };
 };
 
+/* ============================ asset-class copy ============================ */
+/* The server tells us whether this deployment is the equities or the crypto
+   product; the layout and protocol are identical, only wording changes. */
+let CFG = null;
+async function applyAssetClass() {
+  try { CFG = await api("/api/config"); } catch { return; }
+  if (!CFG || CFG.asset_class !== "crypto") return;
+  const c = CFG.copy;
+  document.title = `${c.product} — ${c.descriptor} | Turn your views into position sizes`;
+  const swap = (sel, html) => { const el = document.querySelector(sel); if (el) el.innerHTML = html; };
+  // hero
+  swap(".hero-sub", `${c.product} turns your crypto convictions into disciplined position sizes.`);
+  swap(".hero-support",
+    `You have views about coins — but no rigorous way to decide what those views are worth ` +
+    `in your portfolio. ${c.product} measures the risk you can actually tolerate, converts each ` +
+    `belief into mathematically coherent portfolio weights, and lets you test the result safely ` +
+    `with paper trading. Same protocol as our equities product, tuned for an asset class where ` +
+    `annual volatility runs 50–100% and 80% drawdowns have happened twice.`);
+  document.querySelectorAll(".brand").forEach(b => b.textContent = c.product);
+  // problem / how-it-works / example copy
+  const map = [
+    ["Your brokerage", "Your exchange", "Shows you candles and a portfolio total, then leaves the sizing decision — the one that actually determines your outcome — to conviction and vibes."],
+    ["Robo-advisors", "Crypto index products", "Give you a fixed market-cap basket and ignore everything you believe about specific protocols."],
+    ["Spreadsheets", "Spreadsheets", "Compute whatever you tell them — but they don't know how much drawdown you can genuinely survive."],
+  ];
+  document.querySelectorAll(".cards3 .c h3").forEach(h => {
+    const hit = map.find(m => h.textContent.trim() === m[0]);
+    if (hit) { h.textContent = hit[1]; const p = h.parentElement.querySelector("p"); if (p) p.textContent = hit[2]; }
+  });
+  document.querySelectorAll(".cards3 .c p").forEach(p => {
+    p.innerHTML = p.innerHTML
+      .replace("30 quick either/or choices", "30 quick either/or choices")
+      .replace('"I think TSLA reaches $220 within a year, and I\'m 60% sure."',
+               '"I think SOL reaches $260 within a year, and I\'m 60% sure."')
+      .replace("carrying more risk than your number allows",
+               "carrying more risk than your number allows (stablecoins or a BTC short)");
+  });
+  // example box
+  swap(".example-box .in",
+    `Input: <b>"SOL to $260 in a year, 60% confident"</b> — from an investor measured at Tier 21 of 50 ` +
+    `(moderately risk-averse), $20,000 crypto portfolio.`);
+  const exRows = document.querySelectorAll(".example-box table tr");
+  const exData = [["BUY","SOL/USD","9% → 32%","your view, at 60% trust, earns this much"],
+                  ["BUY","ETH/USD","18% → 34%","rises with the view via correlation"],
+                  ["SELL","DOT/USD","14% → 0%","its volatility isn't paid for at your tier"]];
+  exRows.forEach((tr, i) => {
+    if (i === 0) return;
+    const d = exData[i-1]; if (!d) return;
+    const tds = tr.querySelectorAll("td");
+    if (tds.length === 4) { tds[0].textContent = d[0]; tds[0].className = d[0] === "BUY" ? "buy" : "sell";
+      tds[1].textContent = d[1]; tds[2].textContent = d[2]; tds[3].textContent = d[3]; }
+  });
+  // trust answers that differ
+  document.querySelectorAll(".trust-grid .t").forEach(t => {
+    const h = t.querySelector("h3"), p = t.querySelector("p");
+    if (!h || !p) return;
+    if (h.textContent.includes("real money")) {
+      p.textContent = "No. Hone Crypto connects only to Alpaca's crypto paper-trading API — simulated portfolios with fake money. It cannot place real trades, move real funds, or touch a self-custody wallet.";
+    } else if (h.textContent.includes("limits")) {
+      p.innerHTML = "Crypto returns are fat-tailed and correlations converge toward 1 in a selloff, so volatility-based budgets understate true crash risk — that's why the stress table uses real historical crypto drawdowns (−84%, −77%) rather than model estimates. Models estimate; they don't guarantee.";
+    }
+  });
+  // hedge/limitations note in the footer
+  const f = document.querySelector("footer");
+  if (f) f.innerHTML = `${c.product} is decision support for crypto paper trading — not investment advice, ` +
+    `and it never touches real money or a self-custody wallet. ${c.hedge_note}`;
+}
+
 /* ================================== boot ================================== */
-const START_HTML = $id("page").innerHTML;  // static landing = start template
-render();
+/* Order matters: the asset-class copy swap mutates the static landing DOM
+   in place, and only then is it captured as the start-page template — so
+   returning to the start page keeps the right wording. */
+let START_HTML = $id("page").innerHTML;
+(async () => {
+  await applyAssetClass();
+  START_HTML = $id("page").innerHTML;
+  render();
+})();
 </script>
 </body>
 </html>

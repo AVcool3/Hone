@@ -24,7 +24,11 @@ import numpy as np
 import pandas as pd
 
 from .market_data.covariance import CovarianceReport, portfolio_covariance
-from .optimization.black_litterman import BlackLittermanResult, black_litterman_posterior
+from .optimization.black_litterman import (
+    BlackLittermanResult,
+    black_litterman_posterior,
+    calibrate_delta,
+)
 from .optimization.mvo import MVOResult, mvo_weights
 from .optimization.views import View
 from .hedging.hedge import HedgePlan, suggest_hedges
@@ -113,18 +117,20 @@ def rebalance(
     sigma = report.covariance
     w0 = current_weights.reindex(universe).fillna(0.0)
 
+    # Market risk aversion for reverse optimization, calibrated to a
+    # target market Sharpe (see black_litterman.calibrate_delta).
+    delta = calibrate_delta(sigma, w0)
+
     bl: BlackLittermanResult | None = None
     if views:
-        bl = black_litterman_posterior(
-            sigma, w0, views, delta=max(gamma, 0.5), tau=tau
-        )
+        bl = black_litterman_posterior(sigma, w0, views, delta=delta, tau=tau)
         mu, sigma_opt = bl.posterior_mu, bl.posterior_sigma
     else:
         # No views: fall back to equilibrium returns implied by current
         # holdings (pure risk-based rebalance).
         from .optimization.black_litterman import implied_equilibrium_returns
 
-        mu = implied_equilibrium_returns(sigma, w0, delta=max(gamma, 0.5))
+        mu = implied_equilibrium_returns(sigma, w0, delta=delta)
         sigma_opt = sigma
 
     optimized = mvo_weights(

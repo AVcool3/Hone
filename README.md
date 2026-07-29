@@ -203,6 +203,24 @@ and point your domain's `A` record at the server's IP.
   is stateless. If you want saved profiles/portfolios per user, that's
   the next build step.
 
+## Hone Crypto (side product, same protocol)
+
+The same engine runs a crypto variant — identical elicitation, covariance,
+Black-Litterman and MVO protocol, with crypto parameters (365-day year,
+BTC as market proxy, real crypto drawdowns for stress tests, stablecoins
+instead of options as the hedge leg):
+
+```bash
+python -m hone crypto-demo                  # full crypto pipeline, synthetic data
+python -m hone serve --asset-class crypto   # the crypto site
+HONE_ASSET_CLASS=crypto python -m hone serve   # same thing via env
+```
+
+One codebase, two deployments: set `HONE_ASSET_CLASS=crypto` on a second
+service (see `render.yaml`) and point e.g. `crypto.studiohone.com` at it.
+The research basis, every parameter difference, and the known limitations
+are documented in [docs/CRYPTO_RESEARCH.md](docs/CRYPTO_RESEARCH.md).
+
 ## Accounts & saved portfolios (optional)
 
 Hone has an optional Supabase-powered auth layer: users sign in and save
@@ -217,6 +235,7 @@ in `hone/web/static/config.js`).
 - [docs/VISION.md](docs/VISION.md) — what Hone is and why.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.
+- [docs/CRYPTO_RESEARCH.md](docs/CRYPTO_RESEARCH.md) — Hone Crypto: literature, parameters, limitations.
 
 ## Disclaimers
 

@@ -71,6 +71,7 @@ class HedgeSuggestion:
     hedge_notional_fraction: float  # fraction of portfolio value
     hedged_volatility: float | None = None
     est_annual_cost_fraction: float = 0.0  # indicative cost, fraction of NAV
+    warning: str | None = None  # shown prominently when the hedge is aggressive
     details: dict = field(default_factory=dict)
 
     def describe(self) -> str:
@@ -128,6 +129,7 @@ def stress_scenarios(
     portfolio_value: float,
     hedge_instrument: str = "SPY",
     hedge_fraction: float = 0.0,
+    scenarios: list[tuple[str, float]] | None = None,
 ) -> list[StressResult]:
     """Dollar losses under historical-style market shocks.
 
@@ -137,7 +139,7 @@ def stress_scenarios(
     """
     beta = portfolio_beta(weights, sigma, hedge_instrument)
     results = []
-    for name, shock in STRESS_SCENARIOS:
+    for name, shock in (scenarios or STRESS_SCENARIOS):
         loss = max(beta, 0.0) * shock
         hedged = None
         if hedge_fraction > 0:
@@ -245,8 +247,19 @@ def short_hedge(
     # cash — that drag is the economic cost of the hedge.
     cost = h * max(hedge_expected_return - risk_free, 0.0)
     note = " (capped at the minimum-variance hedge)" if capped else ""
+    # A short this large is a leveraged position, not a tweak: it needs
+    # margin, pays funding, and can be liquidated in a squeeze. Say so.
+    warning = None
+    if h > 0.50:
+        warning = (
+            f"This is a large short ({h:.0%} of portfolio value). It requires margin, "
+            "accrues funding costs, and can be liquidated if the market rallies "
+            "sharply. Reducing exposure directly is usually the safer way to reach "
+            "the same risk level."
+        )
     return HedgeSuggestion(
         kind="short",
+        warning=warning,
         instrument=instrument,
         description=(
             f"Short {instrument} for {h:.1%} of portfolio value{note}. "
@@ -256,6 +269,46 @@ def short_hedge(
         hedged_volatility=float(hedged_vol),
         est_annual_cost_fraction=float(cost),
         details={"correlation": correlation, "capped": capped},
+    )
+
+
+def cash_hedge(
+    portfolio_vol: float,
+    target_vol: float,
+    instrument_label: str = "cash or short-term Treasuries",
+    yield_rate: float = DEFAULT_RISK_FREE,
+    portfolio_expected_return: float = 0.07,
+) -> HedgeSuggestion:
+    """Reduce exposure by holding a zero-volatility asset.
+
+    The plainest hedge there is, and the only one that needs no
+    derivatives approval: hold a fraction ``c`` of the portfolio in cash
+    (equities) or stablecoins (crypto). Because that leg has ~zero
+    volatility, hedged volatility is simply ``(1 - c) * sigma_p``, so
+    hitting the target requires
+
+        c = 1 - sigma_target / sigma_p.
+
+    The cost is the give-up between the portfolio's expected return and
+    what the cash leg yields.
+    """
+    if portfolio_vol <= 0:
+        raise ValueError("portfolio volatility must be positive")
+    c = max(0.0, min(1.0, 1.0 - target_vol / portfolio_vol))
+    give_up = max(portfolio_expected_return - yield_rate, 0.0) * c
+    return HedgeSuggestion(
+        kind="cash",
+        instrument=instrument_label,
+        description=(
+            f"Move {c:.0%} of the portfolio into {instrument_label}. "
+            f"Brings volatility from {portfolio_vol:.0%} to {target_vol:.0%} with no "
+            f"derivatives, no margin, and no liquidation risk — the simplest way to "
+            f"hold exactly the risk your number allows."
+        ),
+        hedge_notional_fraction=float(c),
+        hedged_volatility=float(target_vol),
+        est_annual_cost_fraction=float(give_up),
+        details={"cash_fraction": float(c), "yield": yield_rate, "pricing_source": "exact"},
     )
 
 
@@ -429,6 +482,9 @@ def suggest_hedges(
     risk_free: float = DEFAULT_RISK_FREE,
     portfolio_value: float | None = None,
     option_chain: list[dict] | None = None,
+    scenarios: list[tuple[str, float]] | None = None,
+    cash_hedge_label: str | None = None,
+    allow_options: bool = True,
 ) -> HedgePlan:
     """Full hedge plan for a portfolio and a risk-aversion parameter.
 
@@ -453,6 +509,17 @@ def suggest_hedges(
 
     suggestions: list[HedgeSuggestion] = []
     if needs_hedge:
+        # Simplest first: the cash/stablecoin leg needs no derivatives
+        # approval and carries no liquidation risk.
+        suggestions.append(
+            cash_hedge(
+                port_vol,
+                target_vol,
+                instrument_label=cash_hedge_label or "cash or short-term Treasuries",
+                yield_rate=risk_free,
+                portfolio_expected_return=port_mu,
+            )
+        )
         suggestions.append(
             short_hedge(
                 port_vol,
@@ -463,21 +530,22 @@ def suggest_hedges(
                 risk_free=risk_free,
             )
         )
-        suggestions.append(
-            protective_put(
-                gamma, hedge_spot, iv, instrument=hedge_instrument,
-                risk_free=risk_free, chain=option_chain,
+        if option_chain is not None or allow_options:
+            suggestions.append(
+                protective_put(
+                    gamma, hedge_spot, iv, instrument=hedge_instrument,
+                    risk_free=risk_free, chain=option_chain,
+                )
             )
-        )
-        suggestions.append(
-            zero_cost_collar(
-                gamma, hedge_spot, iv, instrument=hedge_instrument,
-                risk_free=risk_free, chain=option_chain,
+            suggestions.append(
+                zero_cost_collar(
+                    gamma, hedge_spot, iv, instrument=hedge_instrument,
+                    risk_free=risk_free, chain=option_chain,
+                )
             )
-        )
 
     tolerable_loss = current_loss = None
-    scenarios: list[StressResult] = []
+    stress: list[StressResult] = []
     if portfolio_value is not None and portfolio_value > 0:
         # ~95% one-year VaR at the target and current volatility levels.
         tolerable_loss = 1.65 * target_vol * portfolio_value
@@ -486,12 +554,13 @@ def suggest_hedges(
             (s.hedge_notional_fraction for s in suggestions if s.kind == "short"),
             0.0,
         )
-        scenarios = stress_scenarios(
+        stress = stress_scenarios(
             weights,
             sigma,
             portfolio_value,
             hedge_instrument=hedge_instrument,
             hedge_fraction=short_fraction,
+            scenarios=scenarios,
         )
 
     return HedgePlan(
@@ -503,5 +572,5 @@ def suggest_hedges(
         portfolio_value=portfolio_value,
         tolerable_annual_loss_usd=tolerable_loss,
         current_annual_loss_usd=current_loss,
-        scenarios=scenarios,
+        scenarios=stress,
     )

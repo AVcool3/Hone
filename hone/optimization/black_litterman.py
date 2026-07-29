@@ -37,6 +37,43 @@ from .views import View, build_view_matrices
 DEFAULT_TAU = 0.05
 
 
+#: Long-run Sharpe ratio assumed for the *market* portfolio when
+#: calibrating delta. ~0.4 is the standard equity-market figure and is
+#: used for every asset class so the protocol stays identical.
+TARGET_MARKET_SHARPE = 0.40
+
+
+def calibrate_delta(
+    sigma: pd.DataFrame,
+    weights: pd.Series,
+    target_sharpe: float = TARGET_MARKET_SHARPE,
+    floor: float = 0.05,
+) -> float:
+    """Market risk-aversion implied by a target market Sharpe ratio.
+
+    Reverse optimization needs the *market's* aggregate risk aversion,
+    which is not the individual's gamma. Requiring the market portfolio
+    to price at a given Sharpe ratio S gives premium = S * sigma_m and
+    therefore
+
+        delta = premium / sigma_m^2 = S / sigma_m.
+
+    This matters enormously across asset classes. Using the investor's
+    own gamma instead makes the implied equilibrium return scale with
+    variance, so on crypto (variances ~15x equities) the prior implies
+    returns near +100%/yr and a genuinely bullish view registers as
+    bearish. Calibrating to a Sharpe target keeps the prior sane for any
+    volatility level: sigma_m ~ 16% gives delta ~ 2.5 (the canonical
+    equity value), sigma_m ~ 60% gives delta ~ 0.67.
+    """
+    w = weights.reindex(sigma.index).fillna(0.0).to_numpy()
+    var_m = float(w @ sigma.to_numpy() @ w)
+    if var_m <= 0:
+        return max(floor, target_sharpe)
+    sigma_m = var_m**0.5
+    return max(float(target_sharpe / sigma_m), floor)
+
+
 def implied_equilibrium_returns(
     sigma: pd.DataFrame, weights: pd.Series, delta: float
 ) -> pd.Series:

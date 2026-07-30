@@ -128,10 +128,14 @@ python -m hone optimize --demo --gamma 1.2 --view TSLA:200:0.6
 
 ```
 hone/
-├── risk_profile/    # Part 1: questionnaire, MLE, 50 tiers
-├── market_data/     # Part 2: Alpaca client, covariance (internal)
-├── optimization/    # Part 3: MVO, views, Black-Litterman
-├── hedging/         # Part 3: shorts, puts, collars, Black-Scholes
+├── risk_profile/    # questionnaire, MLE, 50 tiers, DOSE adaptive elicitation
+├── market_data/     # Alpaca client, covariance (internal)
+├── optimization/    # MVO, views, Black-Litterman, CVaR, entropy pooling
+├── hedging/         # shorts, puts, collars, Black-Scholes
+├── journal/         # decision journal, Brier scoring, learned confidence
+├── llm/             # Conviction Compiler (Claude + offline parser)
+├── crypto/          # the crypto product's universe and parameters
+├── backtest/        # walk-forward engine + conviction population study
 ├── web/             # FastAPI JSON API + single-page UI
 ├── pipeline.py      # end-to-end flow
 └── cli.py           # `python -m hone ...` (incl. `serve`)
@@ -250,6 +254,22 @@ as you answer, and the credible interval is carried forward rather than
 rounded away. Method, the simulation results, and the limitations are in
 [docs/ADAPTIVE_ELICITATION.md](docs/ADAPTIVE_ELICITATION.md).
 
+## Views that aren't price targets
+
+Black-Litterman needs a linear statement about an expected return under a
+normal distribution. Most convictions aren't that shape: *a one-in-three
+chance of a bad drawdown*, *I'm sure A beats B but couldn't price either*,
+*if Bitcoin breaks, Ethereum breaks harder*. Forcing those through a
+price-target box makes users invent numbers, and an invented number is
+indistinguishable from a real one by the time it reaches the optimizer.
+`hone/optimization/entropy_pooling.py` takes them as constraints on scenario
+probabilities instead, and returns the minimum-relative-entropy posterior —
+the update that adds nothing beyond what you actually asserted (Meucci 2008).
+It reports what your views cost in effective scenarios, and says so when
+they've collapsed the sample. Chained with CVaR, it gives a path from belief
+to portfolio that assumes normality nowhere.
+See [docs/FLEXIBLE_VIEWS.md](docs/FLEXIBLE_VIEWS.md).
+
 ## Tail risk, as a second opinion
 
 Variance treats a good month and a bad month identically and assumes the
@@ -305,6 +325,7 @@ export ANTHROPIC_API_KEY=...   # without it, the offline parser is used
 - [docs/ADAPTIVE_ELICITATION.md](docs/ADAPTIVE_ELICITATION.md) — DOSE: eight adaptive questions instead of thirty.
 - [docs/BACKTEST_CONVICTION.md](docs/BACKTEST_CONVICTION.md) — does any of the conviction machinery actually help, and for whom.
 - [docs/TAIL_RISK.md](docs/TAIL_RISK.md) — CVaR, why variance isn't enough, and what the tail page does not know.
+- [docs/FLEXIBLE_VIEWS.md](docs/FLEXIBLE_VIEWS.md) — entropy pooling: probability, ranking and conditional views.
 - [docs/CALIBRATION.md](docs/CALIBRATION.md) — the decision journal, Brier scoring, and learned confidence.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.

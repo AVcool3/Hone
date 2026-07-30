@@ -442,7 +442,7 @@ const STEPS = ["start", "quiz", "profile", "portfolio", "views", "optimize", "he
 const STEP_LABELS = {start:"Start", quiz:"Questionnaire", profile:"Your profile", portfolio:"Portfolio",
                      views:"Your views", optimize:"Rebalance", hedge:"Hedge", done:"Summary"};
 /* standalone pages outside the linear flow (no progress bar) */
-const ASIDE_PAGES = ["tutorial", "analytics", "signup", "journal", "tails"];
+const ASIDE_PAGES = ["tutorial", "analytics", "signup", "journal", "tails", "flexible"];
 
 /* STATE_KEY must be defined before the first load() call: it is a `const`,
    so calling load() above this line throws a temporal-dead-zone
@@ -1122,6 +1122,9 @@ PAGES.views = () => {
     </div>
 
     ${known.length ? `<div class="muted" style="margin-bottom:8px">Available in this portfolio: ${known.join(", ")}</div>` : ""}
+    <div class="muted" style="margin-bottom:10px">Conviction that isn't a price target —
+      "a one-in-three chance of a bad drawdown", "I'm sure A beats B", "if the market
+      breaks these fall together" — <a class="link" href="#/flexible">goes here instead</a>.</div>
     <datalist id="symbol-options"></datalist>
     <div id="views-list"></div>
     <button class="ghost" id="add-view" style="margin-top:8px">+ Add a view manually</button>
@@ -1762,6 +1765,208 @@ async function applyAssetClass() {
   const f = document.querySelector("footer");
   if (f) f.innerHTML = `${c.product} is decision support for crypto paper trading — not investment advice, ` +
     `and it never touches real money or a self-custody wallet. ${c.hedge_note}`;
+}
+
+/* ------------------------- flexible views (pooling) ----------------------- */
+/* Most real opinions are not price targets. This page takes the ones
+   Black-Litterman structurally cannot accept — probabilities of events,
+   rankings with no number attached, crash relationships — and turns them
+   into constraints on scenario probabilities instead. */
+PAGES.flexible = () => {
+  const coin = ASSET_CLASS === "crypto";
+  const a = coin ? "BTC/USD" : "TSLA", bT = coin ? "ETH/USD" : "JNJ";
+  $id("page").innerHTML = `
+  <div class="card">
+    <h1>Views that aren't price targets</h1>
+    <p class="lead">The main flow needs a number: <i>${esc(a)} to $X by date Y</i>.
+    Most real convictions aren't shaped like that. You might think there's a
+    one-in-three chance of a bad drawdown, or be sure one name beats another
+    without knowing what either is worth, or believe that <b>when</b> the market
+    breaks, two things fall together harder than their history suggests.</p>
+    <p class="lead">Those are all statements about the <b>shape</b> of what might
+    happen, not its centre. Here each one becomes a constraint on which historical
+    scenarios you consider likely — and the answer keeps as much of your original
+    history as it possibly can while honouring what you said.</p>
+    <div id="fx-list"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost" id="fx-add" style="flex:0 0 auto">+ Add a view</button>
+      <span style="flex:1"></span>
+      <button class="primary" id="fx-run" style="flex:0 0 auto">Apply my views</button>
+    </div>
+    <div id="fx-error"></div>
+    <div id="fx-out"></div>
+    <div class="navrow"><button class="ghost" onclick="go('views')">&larr; Back to views</button><span></span></div>
+  </div>`;
+
+  const syms = ((RUNTIME.portfolio && RUNTIME.portfolio.positions) || []).map(p => p.symbol);
+  const opts = (syms.length ? syms : [a, bT]).map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join("");
+  const list = $id("fx-list");
+
+  const addRow = (kind) => {
+    const div = document.createElement("div");
+    div.className = "view-row";
+    div.innerHTML = `
+      <div class="vhead">
+        <label class="field" style="max-width:230px;margin:0"><span>Kind of view</span>
+          <select class="fx-kind">
+            <option value="probability">Chance of a drop</option>
+            <option value="ranking">One beats another</option>
+            <option value="conditional">If X falls, Y falls</option>
+            <option value="volatility">Volatility level</option>
+            <option value="mean">Expected return</option>
+          </select></label>
+        <span style="flex:1"></span>
+        <button class="ghost fx-del" style="padding:5px 10px">✕</button>
+      </div>
+      <div class="row fx-fields"></div>
+      <p class="muted fx-hint" style="margin:0 0 10px"></p>`;
+    div.querySelector(".fx-del").onclick = () => div.remove();
+    const sel = div.querySelector(".fx-kind");
+    sel.onchange = () => paintFields(div, opts);
+    list.appendChild(div);
+    if (kind) sel.value = kind;
+    paintFields(div, opts);
+    return div;
+  };
+  $id("fx-add").onclick = () => addRow();
+  addRow("probability");
+  $id("fx-run").onclick = runPooling;
+};
+
+/* Move the first <option> to the end so a second dropdown lands elsewhere. */
+function shiftFirst(optionsHtml) {
+  const parts = optionsHtml.match(/<option[^>]*>[^<]*<\/option>/g) || [];
+  return parts.length > 1 ? parts.slice(1).concat(parts[0]).join("") : optionsHtml;
+}
+
+function paintFields(row, opts) {
+  const kind = row.querySelector(".fx-kind").value;
+  const f = row.querySelector(".fx-fields");
+  const hint = row.querySelector(".fx-hint");
+  /* The second symbol defaults to a *different* one: two dropdowns that
+     both start on the first option produce "if BTC falls, BTC falls",
+     which is degenerate and makes the feature look broken on arrival. */
+  const sym = (label, cls, second) => `<label class="field"><span>${label}</span>
+    <select class="${cls}">${second ? shiftFirst(opts) : opts}</select></label>`;
+  const num = (label, cls, val, step) => `<label class="field"><span>${label}</span>
+    <input type="number" class="${cls}" step="${step || 1}" value="${val}"></label>`;
+
+  if (kind === "probability") {
+    f.innerHTML = sym("Symbol", "fx-a") + num("Falls more than (%)", "fx-thr", 15) +
+      num("Chance of that (%)", "fx-val", 30);
+    hint.textContent = "A statement about the tail. The main engine has no way to accept it at all.";
+  } else if (kind === "ranking") {
+    f.innerHTML = sym("This one wins", "fx-a") + sym("…against this one", "fx-b", true);
+    hint.textContent = "Conviction with no price attached — the most common real opinion, and the one a price-target engine forces you to invent a number for.";
+  } else if (kind === "conditional") {
+    f.innerHTML = sym("If this falls", "fx-a") + num("…by more than (%)", "fx-thr", 20) +
+      sym("…then this", "fx-b", true) + num("…falls (%)", "fx-val", 30);
+    hint.textContent = "The correlation that shows up in the crash and not before. A full-sample covariance matrix averages it away.";
+  } else if (kind === "volatility") {
+    f.innerHTML = sym("Symbol", "fx-a") + num("Volatility per month (%)", "fx-val", 12);
+    hint.textContent = "A view on how wild things get, independent of direction.";
+  } else {
+    f.innerHTML = sym("Symbol", "fx-a") + num("Expected return per month (%)", "fx-val", 2, 0.1);
+    hint.textContent = "The only one here that Black-Litterman could also take — included so you can compare the two engines on the same view.";
+  }
+}
+
+function collectFlexibleViews() {
+  return [...document.querySelectorAll("#fx-list .view-row")].map(r => {
+    const kind = r.querySelector(".fx-kind").value;
+    const get = (c) => { const el = r.querySelector(c); return el ? el.value : null; };
+    const pct = (c) => { const v = parseFloat(get(c)); return isNaN(v) ? null : v / 100; };
+    const v = { kind, ticker: get(".fx-a") };
+    if (kind === "probability") { v.threshold = -Math.abs(pct(".fx-thr")); v.value = pct(".fx-val"); }
+    else if (kind === "ranking") { v.versus = get(".fx-b"); }
+    else if (kind === "conditional") {
+      v.threshold = -Math.abs(pct(".fx-thr")); v.versus = get(".fx-b");
+      v.value = -Math.abs(pct(".fx-val"));
+    } else { v.value = pct(".fx-val"); }
+    return v;
+  }).filter(v => v.ticker);
+}
+
+async function runPooling() {
+  $id("fx-error").innerHTML = "";
+  $id("fx-out").innerHTML = `<div class="spinner">Reweighting your history…</div>`;
+  try {
+    const body = Object.assign(marketBody(), {
+      views: collectFlexibleViews(),
+      gamma: S.gamma ?? 2.0,
+      max_weight: S.maxWeight ?? 0.35,
+    });
+    renderPooling(await api("/api/pooling", body));
+  } catch (e) {
+    $id("fx-out").innerHTML = "";
+    $id("fx-error").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+function renderPooling(r) {
+  const kept = r.effective_scenarios / r.prior_effective_scenarios;
+  const moved = r.prior_mu.filter(x => Math.abs(x.tilt) > 1e-5)
+    .sort((a, b) => Math.abs(b.tilt) - Math.abs(a.tilt));
+
+  $id("fx-out").innerHTML = `
+    <div class="note">${esc(r.summary)}</div>
+    <h2>Did your views hold?</h2>
+    <table>
+      <tr><th>View</th><th class="num">You said</th><th class="num">Now true</th><th></th></tr>
+      ${r.views.map(v => `<tr>
+        <td>${esc(v.label)}</td>
+        <td class="num">${v.target.toFixed(3)}</td>
+        <td class="num">${v.achieved.toFixed(3)}</td>
+        <td>${v.satisfied
+          ? (v.binding ? `<span class="flag">applied</span>`
+                       : `<span class="muted">already true — nothing changed</span>`)
+          : `<span class="flag warn">could not hold</span>`}</td></tr>`).join("")}
+    </table>
+
+    <h2>What it cost</h2>
+    <div class="chart">
+      <div class="barrow">
+        <div class="sym">kept</div>
+        <div class="track2"><div class="bar single" style="width:${Math.max(2, kept*100)}%;
+          background:${r.collapsed ? "var(--critical)" : "var(--series-1)"}"></div></div>
+        <div class="val">${fmtPct(kept, 0)}</div>
+      </div>
+    </div>
+    <div class="${r.collapsed ? "error" : "muted"}" style="margin-top:6px">
+      ${r.collapsed
+        ? `Your views are strong enough that the posterior now rests on
+           ${Math.round(r.effective_scenarios)} of ${r.n_scenarios} scenarios.
+           Everything below — the tail especially — is being carried by that
+           handful. Soften a view, or read the result as a stress test rather
+           than a forecast.`
+        : `The posterior effectively uses ${Math.round(r.effective_scenarios)} of
+           ${r.n_scenarios} scenarios. Views only ever cost history; this one is
+           cheap enough that what's left still means something.`}
+    </div>
+
+    <h2>What your views repriced</h2>
+    <p class="muted">You named ${r.views.length} thing${r.views.length === 1 ? "" : "s"};
+    everything else moved because it moves <i>with</i> what you named. That's the same
+    job the covariance matrix does in the main flow — obtained here without assuming
+    any particular distribution.</p>
+    ${moved.length ? `<table><tr><th>Symbol</th><th class="num">Before</th><th class="num">After</th><th class="num">Change</th></tr>
+      ${moved.map(x => `<tr><td>${esc(x.symbol)}</td>
+        <td class="num">${fmtSPct(x.prior)}</td><td class="num">${fmtSPct(x.posterior)}</td>
+        <td class="num ${x.tilt >= 0 ? "buy" : "sell"}">${fmtSPct(x.tilt)}</td></tr>`).join("")}
+      </table>` : `<div class="note">Nothing moved — your views were already true in
+      this history, so there was nothing to reweight.</div>`}
+
+    <h2>The portfolio those beliefs imply</h2>
+    <table>
+      <tr><th>Symbol</th><th class="num">Now</th><th class="num">Target</th><th class="num">Trade</th></tr>
+      ${r.weights.map(w => `<tr><td>${esc(w.symbol)}</td>
+        <td class="num">${fmtPct(w.current)}</td><td class="num">${fmtPct(w.target)}</td>
+        <td class="num ${w.trade >= 0 ? "buy" : "sell"}">${fmtSPct(w.trade)}</td></tr>`).join("")}
+    </table>
+    <div class="muted" style="margin-top:6px">Tail loss on the worst 5% of months:
+      ${fmtPct(r.cvar_before)} → ${fmtPct(r.cvar_after)} under your views. This
+      portfolio minimizes the tail of the world you just described, which is a
+      different thing from the world being that way.</div>`;
 }
 
 /* ------------------------------ tail risk -------------------------------- */

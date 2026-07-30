@@ -911,6 +911,159 @@ def create_app() -> FastAPI:
             summary=summary,
         )
 
+    # -------------------------------------------- flexible views (pooling)
+    @app.post("/api/pooling", response_model=s.PoolingResponse)
+    def pooling(req: s.PoolingRequest) -> s.PoolingResponse:
+        """Views Black-Litterman cannot express, via entropy pooling.
+
+        Probability-of-an-event views, rankings without price targets,
+        volatility views and conditional crash relationships all become
+        constraints on scenario probabilities.  The posterior is the
+        minimum-relative-entropy distribution satisfying them — the update
+        that adds no information beyond what the views assert — and it
+        drives the CVaR optimizer directly, so nothing along this path
+        assumes normality.
+        """
+        from ..optimization.cvar import (
+            cvar_gamma_weights,
+            cvar_of_weights,
+            historical_scenarios,
+        )
+        from ..optimization import entropy_pooling as ep
+
+        prices, weights = _load_market(
+            req.demo, req.credentials, [], _market_proxy(), req.lookback_days
+        )
+        try:
+            scenarios = historical_scenarios(
+                prices, periods_per_year=_periods_per_year(), horizon=req.horizon
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+        available = ", ".join(map(str, scenarios.columns))
+        built: list[ep.View] = []
+        for v in req.views:
+            try:
+                if v.kind == "mean":
+                    built.append(ep.mean_view(scenarios, v.ticker, v.value or 0.0))
+                elif v.kind == "probability":
+                    built.append(
+                        ep.probability_view(
+                            scenarios, v.ticker, v.threshold or 0.0,
+                            v.value or 0.0, below=v.below,
+                        )
+                    )
+                elif v.kind == "ranking":
+                    built.append(
+                        ep.ranking_view(scenarios, v.ticker, v.versus or "")
+                    )
+                elif v.kind == "volatility":
+                    built.append(
+                        ep.volatility_view(scenarios, v.ticker, v.value or 0.0)
+                    )
+                elif v.kind == "conditional":
+                    built.append(
+                        ep.conditional_view(
+                            scenarios, v.ticker, v.threshold or 0.0,
+                            v.versus or "", v.value or 0.0,
+                        )
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=422, detail=f"unknown view kind {v.kind!r}"
+                    )
+            except KeyError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{exc.args[0]} Available here: {available}",
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+
+        if not built:
+            raise HTTPException(status_code=422, detail="no views supplied")
+
+        result = ep.entropy_pooling(built)
+        prior_mu = scenarios.mean()
+        post_mu, _ = ep.posterior_moments(scenarios, result.probabilities)
+
+        resampled = ep.resample_scenarios(scenarios, result.probabilities, seed=7)
+        portfolio = cvar_gamma_weights(
+            resampled, gamma=req.gamma, mu=post_mu,
+            beta=req.beta, max_weight=req.max_weight,
+        )
+        current = weights.reindex(scenarios.columns).fillna(0.0)
+        if current.sum() > 0:
+            current = current / current.sum()
+
+        cost_note = (
+            " The views discard "
+            f"{result.confidence_cost:.0%} of the scenario set to hold, so what "
+            "is left is thin — especially in the tail."
+            if result.confidence_cost > 0.25
+            else ""
+        )
+        summary = (
+            f"{len(built)} view{'s' if len(built) != 1 else ''} applied to "
+            f"{len(scenarios)} scenarios; the posterior effectively uses "
+            f"{result.effective_scenarios:.0f} of them.{cost_note}"
+        )
+
+        return s.PoolingResponse(
+            views=[
+                s.PoolingViewOut(
+                    label=v.label,
+                    target=v.target,
+                    achieved=result.achieved.get(v.label, float("nan")),
+                    satisfied=(
+                        abs(result.achieved.get(v.label, 0.0) - v.target) < 1e-4
+                        if v.kind == "eq"
+                        else (
+                            result.achieved.get(v.label, 0.0) <= v.target + 1e-8
+                            if v.kind == "le"
+                            else result.achieved.get(v.label, 0.0) >= v.target - 1e-8
+                        )
+                    ),
+                    binding=(
+                        v.kind == "eq"
+                        or abs(result.achieved.get(v.label, 0.0) - v.target) < 1e-6
+                    ),
+                )
+                for v in built
+            ],
+            n_scenarios=len(scenarios),
+            effective_scenarios=result.effective_scenarios,
+            prior_effective_scenarios=result.prior_effective_scenarios,
+            confidence_cost=result.confidence_cost,
+            relative_entropy=result.relative_entropy,
+            collapsed=result.collapsed,
+            prior_mu=[
+                s.ReturnRow(
+                    symbol=str(sym),
+                    prior=float(prior_mu[sym]),
+                    posterior=float(post_mu[sym]),
+                    tilt=float(post_mu[sym] - prior_mu[sym]),
+                )
+                for sym in scenarios.columns
+            ],
+            weights=[
+                s.WeightRow(
+                    symbol=str(sym),
+                    current=float(current.get(sym, 0.0)),
+                    target=float(portfolio.weights.get(sym, 0.0)),
+                    trade=float(
+                        portfolio.weights.get(sym, 0.0) - current.get(sym, 0.0)
+                    ),
+                    reason="",
+                )
+                for sym in scenarios.columns
+            ],
+            cvar_before=cvar_of_weights(scenarios, current, req.beta),
+            cvar_after=cvar_of_weights(resampled, portfolio.weights, req.beta),
+            summary=summary,
+        )
+
     # ----------------------------------------------- adaptive elicitation
     @app.post("/api/dose", response_model=s.DoseResponse)
     def dose(req: s.DoseRequest) -> s.DoseResponse:

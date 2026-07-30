@@ -455,3 +455,66 @@ class CVaRResponse(BaseModel):
     #: The headline: dollars of tail loss the risk-first book avoids.
     cvar_saved_usd: float | None = None
     summary: str
+
+
+# --------------------------------------------------- entropy pooling (views)
+class FlexibleViewIn(BaseModel):
+    """A view the Black-Litterman engine cannot express.
+
+    ``kind`` selects which fields matter:
+      mean         ticker, value                 E[r] = value
+      probability  ticker, threshold, value      P(r <= threshold) = value
+      ranking      ticker, versus                E[ticker] >= E[versus]
+      volatility   ticker, value                 vol(ticker) = value
+      conditional  ticker, versus, threshold, value
+                                                 E[versus | ticker <= threshold] = value
+    """
+
+    kind: str
+    ticker: str
+    value: float | None = None
+    threshold: float | None = None
+    versus: str | None = None
+    below: bool = True
+
+
+class PoolingRequest(BaseModel):
+    views: list[FlexibleViewIn]
+    gamma: float
+    demo: bool = False
+    credentials: AlpacaCredentials | None = None
+    lookback_days: int = 756
+    horizon: int = Field(default=21, ge=1, le=252)
+    max_weight: float | None = 0.35
+    beta: float = Field(default=0.95, ge=0.5, lt=1.0)
+
+
+class PoolingViewOut(BaseModel):
+    label: str
+    #: What the view asserted, and what the posterior actually delivers.
+    target: float
+    achieved: float
+    #: Equality views land on the target; inequality views (rankings) only
+    #: have to clear it, and often the prior already does — in which case
+    #: nothing was reweighted and the cost is zero.
+    satisfied: bool = True
+    binding: bool = True
+
+
+class PoolingResponse(BaseModel):
+    views: list[PoolingViewOut]
+    n_scenarios: int
+    #: exp(entropy): how many scenarios the posterior effectively uses.
+    effective_scenarios: float
+    prior_effective_scenarios: float
+    #: Fraction of the scenario set the views discarded.
+    confidence_cost: float
+    relative_entropy: float
+    #: True when the posterior rests on too few scenarios to trust.
+    collapsed: bool
+    #: Prior vs posterior expected return per asset.
+    prior_mu: list[ReturnRow]
+    weights: list[WeightRow]
+    cvar_before: float
+    cvar_after: float
+    summary: str

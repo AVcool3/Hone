@@ -76,8 +76,12 @@ class TestViewConstruction:
         # 63 *trading* days is a calendar quarter; 63 crypto days is 63 days.
         assert equity_view.horizon_days == pytest.approx(63 * DAYS_PER_YEAR / 252)
         assert crypto_view.horizon_days == pytest.approx(63 * DAYS_PER_YEAR / 365)
-        # Same target, different clock -> different annualized view return.
-        assert equity_view.expected_return < crypto_view.expected_return
+        # Same target, either clock: a sub-annual view asserts a one-off
+        # move, so Q is the move itself and does not diverge with the
+        # calendar. Only the *compounded* reading (kept for warnings) does.
+        assert equity_view.expected_return == pytest.approx(0.10)
+        assert crypto_view.expected_return == pytest.approx(0.10)
+        assert equity_view.implied_cagr < crypto_view.implied_cagr
 
     def test_perfect_skill_reproduces_the_realized_price(self):
         prices = EQUITY.prices(7)

@@ -271,9 +271,14 @@ from what the user *says* to what their history justifies — which is then
 applied to future views, disclosed on screen, and switchable off. Confidence
 is the one number in Hone the user supplies rather than the system measures,
 and it is the lever controlling how far the portfolio tilts; this is how it
-stops being taken on trust. The method, the guards against over-correcting on
-thin evidence, and the known limitations are in
-[docs/CALIBRATION.md](docs/CALIBRATION.md).
+stops being taken on trust. The correction is deliberately gentle, and that
+is an empirical result rather than caution: a simulated population of
+investors showed that replacing stated confidence *outright* with a realized
+hit rate loses more often than it wins, because it taxes anyone with genuine
+edge. Confidence handling is a guardrail, not an edge. The method, the guards
+against over-correcting on thin evidence, and the honest limitations are in
+[docs/CALIBRATION.md](docs/CALIBRATION.md); the evidence is in
+[docs/BACKTEST_CONVICTION.md](docs/BACKTEST_CONVICTION.md).
 
 ```bash
 pip install -e ".[llm]"        # optional: enables the Claude compiler
@@ -284,6 +289,7 @@ export ANTHROPIC_API_KEY=...   # without it, the offline parser is used
 
 - [docs/VISION.md](docs/VISION.md) — what Hone is and why.
 - [docs/ADAPTIVE_ELICITATION.md](docs/ADAPTIVE_ELICITATION.md) — DOSE: eight adaptive questions instead of thirty.
+- [docs/BACKTEST_CONVICTION.md](docs/BACKTEST_CONVICTION.md) — does any of the conviction machinery actually help, and for whom.
 - [docs/CALIBRATION.md](docs/CALIBRATION.md) — the decision journal, Brier scoring, and learned confidence.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.

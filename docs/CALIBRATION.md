@@ -39,8 +39,18 @@ When the horizon elapses the prediction resolves against the market:
 | Event | Definition | Used for |
 |---|---|---|
 | `target_hit` | Final price at or beyond the target | The Brier score and the calibration fit — it is literally what the confidence claimed |
-| `direction_hit` | Price simply moved the way the user said | Reported, not scored — much less noisy, and separates "wrong" from "right but greedy" |
+| `direction_hit` | Price simply moved the way the user said | Reported, **never scored** — see below |
 | `touched` | Target reached at any point before expiry | Shown only. A target touched and given back is not a forecast that paid, but "you were right and didn't take it" is the most useful thing a journal can say |
+
+`direction_hit` is shown because "right on direction, too greedy on
+magnitude" is a different and fixable problem from "simply wrong". It is
+kept out of the score because it is **contaminated by drift**: in a
+rising market a coin-flipper who is long by habit clears 60% on it while
+knowing nothing. The conviction backtest measured the effect directly — a
+zero-skill investor scored 0.511 directional against 0.491 when the same
+calls were graded against the equilibrium prior instead of against zero.
+Feeding it into the calibration map would hand users a flattering number
+manufactured by the market going up.
 
 A prediction whose price data is missing stays **open** rather than being
 scored a miss. Counting our data gaps as the user's failures would
@@ -88,11 +98,28 @@ pseudo-count of 20 calibrated observations:
 a_used = w · â          b_used = w · b̂ + (1 − w)          w = n / (n + 20)
 ```
 
-Shrinkage is not a nicety. A user with six resolved predictions has told
-us almost nothing, and a tool that responded by halving their confidence
-would be substituting its own noise for theirs. Below **five** resolved
-predictions nothing is adjusted at all — the page is a record, not yet a
-correction.
+Shrinkage is not a nicety, and the threshold below which nothing happens
+at all is not either. Both were tested rather than assumed — see
+[docs/BACKTEST_CONVICTION.md](BACKTEST_CONVICTION.md), which simulated a
+population of investors and compared this design against the two obvious
+alternatives:
+
+* Replacing stated confidence **outright** with the realized hit rate —
+  the blunt version of this feature — *lost* on the majority of investor
+  draws (it won 27-54% in equities, 26-41% in crypto). It helps the
+  overconfident and taxes anyone with genuine edge, because a hit rate is
+  a slow, noisy estimator that caps confidence near 0.23 even for a good
+  forecaster. Shrinking toward the user's own number is what makes the
+  feature safe.
+* Acting at **five** resolutions, the original threshold, was acting on
+  noise: the standard error on a hit rate at n=5 is about ±22 percentage
+  points, and separating a forecaster with a real information coefficient
+  of 0.2 from one with none takes on the order of a hundred resolutions.
+  The threshold is now **25**, which is still optimistic and is the least
+  defensible number in this module.
+
+Below the threshold nothing is adjusted at all — the page is a record,
+not yet a correction.
 
 Two more guards:
 
@@ -122,6 +149,12 @@ silent, and can be switched off on the record page.
 * **Small n.** Retail users will have tens of resolved predictions, not
   thousands. The reliability curve uses five buckets rather than ten for
   this reason, and it is still noisy. Read the shape, not the wiggles.
+* **The evidence for this feature is mixed, and honestly so.** The
+  simulation says the confidence channel moves median Sharpe by less than
+  0.05 in the shipped configuration, against a 0.16 gap between having
+  forecasting skill and not. Confidence handling is a guardrail, not an
+  edge — it earns its place by limiting the damage a badly-calibrated user
+  does to themselves, not by making anyone money.
 * **Horizon clustering.** Predictions made in the same week resolve in
   the same market. Twelve calls made into one drawdown are closer to one
   observation than twelve, and the score does not currently correct for

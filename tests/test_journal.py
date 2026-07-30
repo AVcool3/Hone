@@ -188,6 +188,20 @@ class TestCalibrationFit:
         report = fit_calibration(p, o)
         assert apply_calibration(0.4, report) > 0.5
 
+    def test_a_handful_of_resolutions_is_still_not_evidence(self):
+        """Five was the old threshold and it was acting on noise.
+
+        The standard error on a hit rate at n=5 is about +/-22 points;
+        telling a user their 90% "really means" something on that basis is
+        substituting our noise for theirs.
+        """
+        rng = np.random.default_rng(11)
+        p = np.full(10, 0.8)
+        o = (rng.random(10) < 0.2).astype(float)
+        report = fit_calibration(p, o)
+        assert report.n == 10 and not report.actionable
+        assert apply_calibration(0.8, report) == pytest.approx(0.8)
+
     def test_short_history_is_not_acted_on(self):
         report = fit_calibration([0.9, 0.9, 0.9], [0, 0, 0])
         assert report.n == 3
@@ -197,7 +211,7 @@ class TestCalibrationFit:
         assert str(MIN_FOR_ADJUSTMENT) in report.summary
 
     def test_shrinkage_makes_a_long_record_bite_harder(self):
-        p_short, o_short = self._overconfident(n=8, seed=7)
+        p_short, o_short = self._overconfident(n=30, seed=7)
         p_long, o_long = self._overconfident(n=300, seed=7)
         short = apply_calibration(0.8, fit_calibration(p_short, o_short))
         long = apply_calibration(0.8, fit_calibration(p_long, o_long))
@@ -205,7 +219,7 @@ class TestCalibrationFit:
 
     def test_perfect_record_does_not_blow_up(self):
         """Every call correct: the unconstrained MLE diverges, the fit must not."""
-        report = fit_calibration([0.6] * 20, [1] * 20)
+        report = fit_calibration([0.6] * 30, [1] * 30)
         adjusted = apply_calibration(0.6, report)
         assert np.isfinite(adjusted) and adjusted <= 0.95
         assert adjusted > 0.6  # rewarded, not punished

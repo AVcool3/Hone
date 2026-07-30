@@ -51,18 +51,46 @@ class View:
             raise ValueError("horizon_days must be positive")
 
     @property
-    def expected_return(self) -> float:
-        """Annualized (CAGR) return implied by reaching the target on
-        the stated horizon."""
+    def implied_cagr(self) -> float:
+        """The compound annual rate the target implies if the move *repeats*.
+
+        Kept for display and for sanity warnings — a mistyped target shows
+        up here as an absurd number — but deliberately not what the
+        optimizer consumes.  See :attr:`expected_return`.
+        """
         total = self.target_price / self.current_price
         years = self.horizon_days / DAYS_PER_YEAR
         return float(total ** (1.0 / years) - 1.0)
+
+    @property
+    def expected_return(self) -> float:
+        """The annual expected return this view asserts — the Q entry.
+
+        Sub-annual targets are treated as a **one-off move, not a run
+        rate**.  Someone who says "up 50% in a month" is claiming the price
+        gets to that level and then behaves normally; they are not
+        forecasting 138x over the year, which is what compounding the
+        monthly rate would put into Q and hand to Black-Litterman.  That
+        was a live hazard rather than a hypothetical one: on simulated
+        retail-style quarterly targets, 12% of crypto views annualized past
+        +1000%/yr and one reached +130,000%/yr.
+
+        The extra force of a short-horizon claim is real, but it belongs in
+        the *confidence* channel — how sure you are — not in the magnitude.
+        Horizons of a year or more still compound normally, and the two
+        rules agree exactly at one year.
+        """
+        total = self.target_price / self.current_price - 1.0
+        if self.horizon_days >= DAYS_PER_YEAR:
+            return self.implied_cagr
+        return float(total)
 
     def describe(self) -> str:
         return (
             f"{self.ticker}: ${self.current_price:,.2f} -> "
             f"${self.target_price:,.2f} in {self.horizon_days:.0f}d "
-            f"({self.expected_return:+.1%}/yr, confidence {self.confidence:.0%})"
+            f"({self.expected_return:+.1%} expected, "
+            f"confidence {self.confidence:.0%})"
         )
 
 

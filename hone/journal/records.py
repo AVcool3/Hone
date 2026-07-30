@@ -97,10 +97,18 @@ class Resolution:
         calibration mapping is fitted on.
     ``direction_hit``
         Did the price simply move the way the user said?  A much easier
-        event, and a much less noisy signal of whether someone knows
-        anything.  Reported alongside because a user who is directionally
-        right and habitually too greedy about magnitude deserves different
-        feedback from one who is simply wrong.
+        event, and much less noisy, so it is shown alongside: someone who
+        is directionally right and habitually too greedy about magnitude
+        has a different, fixable problem from someone who is simply wrong.
+
+        It is **not** scored, and must not be, because it is contaminated
+        by drift.  In a rising market a coin-flipper who is long by habit
+        clears 60% on this measure while knowing nothing, and the
+        conviction backtest measured exactly that pattern: a zero-skill
+        investor scored 0.511 directional against 0.491 when the same calls
+        were graded against the equilibrium prior instead of against zero.
+        Feeding it into the calibration map would hand retail users a
+        flattering number manufactured by the market going up.
 
     ``touched`` records whether the target was reached *at any point* before
     expiry.  It is not scored — a target touched intraday and given back is

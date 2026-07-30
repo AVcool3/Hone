@@ -42,7 +42,16 @@ SHRINKAGE_PSEUDO_COUNT = 20.0
 
 #: Below this many resolved predictions the report is informational only and
 #: :func:`apply_calibration` returns the stated confidence untouched.
-MIN_FOR_ADJUSTMENT = 5
+#:
+#: Raised from 5 after the conviction backtest (docs/BACKTEST_CONVICTION.md)
+#: measured what a hit rate is actually worth at small n: the standard error
+#: on a hit rate at n=5 is about +/-22 percentage points, and separating a
+#: forecaster with a real information coefficient of 0.2 from one with none
+#: takes on the order of a hundred resolutions.  Acting at n=5 was acting on
+#: noise.  The shrinkage below already keeps the correction gentle; this
+#: threshold makes sure it is not applied at all until there is something to
+#: shrink toward.
+MIN_FOR_ADJUSTMENT = 25
 
 _EPS = 1e-6
 

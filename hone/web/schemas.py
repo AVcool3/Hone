@@ -258,6 +258,10 @@ class CompileRequest(BaseModel):
     """Plain-English thesis to compile into structured, editable views."""
 
     text: str = Field(description="What the user believes, in their own words")
+    #: The user's journal. When enough of it has resolved, their own
+    #: examples go into the prompt so the compiler reads their language
+    #: the way their history says it should be read.
+    predictions: list["PredictionIn"] = []
     demo: bool = False
     credentials: AlpacaCredentials | None = None
     #: Attach live prices as the entry price for each compiled view.
@@ -294,6 +298,8 @@ class CompiledViewOut(BaseModel):
 class CompileResponse(BaseModel):
     #: "claude" when the LLM compiled it, "fallback" for the offline parser.
     engine: str
+    #: How many of the user's own resolved predictions shaped this compile.
+    personalized_from: int = 0
     views: list[CompiledViewOut]
     notes: list[str] = []
     #: Symbols the user can name, so the UI can offer a picker on failure.
@@ -547,3 +553,34 @@ class PoolingResponse(BaseModel):
 
 
 BacktestResponse.model_rebuild()
+
+
+class TrainingExportRequest(BaseModel):
+    predictions: list[PredictionIn] = []
+    demo: bool = False
+    credentials: AlpacaCredentials | None = None
+    lookback_days: int = 1260
+    #: Which halves of the dataset to build.
+    include_compile: bool = True
+    include_calibration: bool = True
+
+
+class TrainingExportResponse(BaseModel):
+    n_examples: int
+    n_compile: int
+    n_calibrate: int
+    n_resolved: int
+    hit_rate: float | None = None
+    #: "few_shot" | "marginal" | "ready"
+    recommendation: str
+    warnings: list[str] = []
+    notes: list[str] = []
+    summary: str
+    #: The dataset itself, JSONL, ready to write to a file.
+    jsonl: str = ""
+    #: How many examples the few-shot path is using right now — the thing
+    #: that works today, as opposed to the export, which needs far more.
+    few_shot_active: int = 0
+
+
+CompileRequest.model_rebuild()

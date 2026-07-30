@@ -254,6 +254,21 @@ as you answer, and the credible interval is carried forward rather than
 rounded away. Method, the simulation results, and the limitations are in
 [docs/ADAPTIVE_ELICITATION.md](docs/ADAPTIVE_ELICITATION.md).
 
+## Teaching a model your habits
+
+Your resolved predictions are the only data that could teach a model how *you*
+write and what your language turns out to be worth. Hone ships two paths and
+is blunt about which one works at your scale. **In-context personalization**
+(`hone/llm/personalize.py`) puts your own resolved examples — outcome-balanced,
+plus your realized hit rate — into the compiler's prompt. No GPU, active from
+five predictions, better every time one resolves. **QLoRA export**
+(`hone/llm/export.py`, `training/train_qlora.py`) builds a fine-tuning dataset
+whose calibration labels are *realized outcomes* rather than stated confidence
+— so a model learns what your language predicts, not how sure you claim to be.
+It refuses to train below 200 examples, because thirty rows produce a model
+that has memorized them and is worse than the base on the thirty-first.
+See [docs/QLORA.md](docs/QLORA.md).
+
 ## The behaviour gap
 
 Every backtest here assumed you held the strategy through everything it did.
@@ -341,6 +356,7 @@ export ANTHROPIC_API_KEY=...   # without it, the offline parser is used
 - [docs/TAIL_RISK.md](docs/TAIL_RISK.md) — CVaR, why variance isn't enough, and what the tail page does not know.
 - [docs/FLEXIBLE_VIEWS.md](docs/FLEXIBLE_VIEWS.md) — entropy pooling: probability, ranking and conditional views.
 - [docs/BEHAVIOR_GAP.md](docs/BEHAVIOR_GAP.md) — what you'd actually have got, once you're allowed to panic.
+- [docs/QLORA.md](docs/QLORA.md) — personalizing the compiler: few-shot now, fine-tuning when the data justifies it.
 - [docs/CALIBRATION.md](docs/CALIBRATION.md) — the decision journal, Brier scoring, and learned confidence.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.

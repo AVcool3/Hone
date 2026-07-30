@@ -1205,8 +1205,14 @@ PAGES.views = () => {
     $id("c-run").disabled = true;
     $id("c-out").innerHTML = `<div class="spinner">Reading your thesis…</div>`;
     try {
-      const res = await api("/api/compile-view", Object.assign(marketBody(), { text }));
-      $id("c-engine").textContent = res.engine === "claude" ? "compiled by Claude" : "compiled locally";
+      /* the journal rides along: resolved predictions personalize the
+         compiler in-context, which works at the scale a real journal
+         actually reaches */
+      const res = await api("/api/compile-view",
+        Object.assign(marketBody(), { text, predictions: journalLoad() }));
+      $id("c-engine").textContent =
+        (res.engine === "claude" ? "compiled by Claude" : "compiled locally")
+        + (res.personalized_from ? ` · tuned to your last ${res.personalized_from}` : "");
       RUNTIME.compileUniverse = res.universe || [];
       const notes = (res.notes || []).map(n => `<div class="note">${esc(n)}</div>`).join("");
       if (!res.views.length) {
@@ -2015,6 +2021,59 @@ function renderPooling(r) {
       different thing from the world being that way.</div>`;
 }
 
+/* Export the journal as fine-tuning data — and be straight about the fact
+   that at retail volumes the few-shot path is the one that works. */
+async function runExport() {
+  $id("j-export").innerHTML = `<div class="spinner">Building your dataset…</div>`;
+  try {
+    const r = await api("/api/export/training",
+      Object.assign(marketBody(), { predictions: journalLoad() }));
+    const verdict = {
+      few_shot: ["Not yet — and that's fine", "warn"],
+      marginal: ["Enough to try, not to trust", "warn"],
+      ready: ["Enough to train on", "ok"],
+    }[r.recommendation] || ["", ""];
+
+    $id("j-export").innerHTML = `
+      <div class="tiles">
+        <div class="tile"><div class="k">In your prompt now</div>
+          <div class="v">${r.few_shot_active}</div>
+          <div class="s">examples personalizing the compiler — working today</div></div>
+        <div class="tile"><div class="k">Fine-tuning rows</div>
+          <div class="v">${r.n_examples}</div>
+          <div class="s">${r.n_compile} compile · ${r.n_calibrate} calibrate</div></div>
+        <div class="tile"><div class="k">Verdict</div>
+          <div class="v" style="font-size:15px">${esc(verdict[0])}</div>
+          <div class="s">on fine-tuning, not on the few-shot path</div></div>
+      </div>
+      ${(r.warnings || []).map(w => `<div class="error">${esc(w)}</div>`).join("")}
+      ${(r.notes || []).map(n => `<div class="note">${esc(n)}</div>`).join("")}
+      <div class="row" style="margin-top:10px">
+        <button class="ghost" id="j-download" style="flex:0 0 auto"
+          ${r.n_examples ? "" : "disabled"}>Download JSONL (${r.n_examples} rows)</button>
+        <span style="flex:1"></span>
+      </div>
+      <div class="muted" style="margin-top:8px">The download trains a local
+      open-weights model with <code>training/train_qlora.py</code>. Claude itself
+      can't be fine-tuned through the API — the personalization that reaches Claude
+      is the ${r.few_shot_active} examples above, put in the prompt.</div>`;
+
+    const dl = $id("j-download");
+    if (dl) dl.onclick = () => downloadText("hone-training.jsonl", r.jsonl);
+  } catch (e) {
+    $id("j-export").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+function downloadText(filename, text) {
+  const blob = new Blob([text], { type: "application/jsonl" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /* ------------------------------ tail risk -------------------------------- */
 /* Variance and CVaR disagree exactly when returns are not normal, which is
    most of the time and nearly always in crypto. This page shows both answers
@@ -2343,13 +2402,20 @@ function renderJournal(r) {
   $id("j-out").innerHTML = `
     ${c.n ? `<div class="note">${esc(c.summary)}</div>` : ""}
     ${tiles}${chart}${mapping}${decomp}${openRows}${resolvedRows}
+    <h2>Teach a model your habits</h2>
+    <p class="muted">Your resolved predictions are training data — the only data
+    that could teach a model how <i>you</i> write and what your language turns out
+    to be worth. Two ways to use it, and they need very different amounts.</p>
+    <div id="j-export"></div>
     <div class="row" style="margin-top:18px">
+      <button class="ghost" id="j-train" style="flex:0 0 auto">Check my training data</button>
       <button class="ghost" id="j-clear" style="flex:0 0 auto">Clear my journal</button>
       <span style="flex:1"></span>
     </div>`;
 
   const box = $id("j-usecal");
   if (box) box.onchange = () => { S.useCalibration = box.checked; save(); };
+  $id("j-train").onclick = runExport;
   $id("j-clear").onclick = () => {
     if (!confirm("Delete every logged prediction? This cannot be undone.")) return;
     journalSave([]); S.calibration = null; save(); loadJournal();

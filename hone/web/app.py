@@ -163,6 +163,41 @@ def _demo_journal(prices: pd.DataFrame, n: int = 14) -> list[s.PredictionIn]:
     return out
 
 
+def _resolve_journal(
+    predictions: list[s.PredictionIn], prices: pd.DataFrame
+) -> list:
+    """Resolve journal entries against a price panel, ignoring bad rows.
+
+    Used by both the personalization path and the training export; a
+    malformed entry should degrade the feature, never break the request
+    the user actually made.
+    """
+    from ..journal.records import Prediction, resolve_all
+
+    built = []
+    for raw in predictions:
+        try:
+            built.append(
+                Prediction(
+                    ticker=raw.ticker,
+                    entry_price=raw.entry_price,
+                    target_price=raw.target_price,
+                    confidence=raw.confidence,
+                    horizon_days=raw.horizon_days,
+                    direction=raw.direction,
+                    thesis=raw.thesis,
+                    created_at=raw.created_at,
+                    id=raw.id,
+                )
+            )
+        except ValueError:
+            continue
+    if not built:
+        return []
+    resolved, _ = resolve_all(built, prices)
+    return resolved
+
+
 def _tier_info(gamma: float) -> s.TierInfo:
     t = gamma_to_tier(gamma)
     return s.TierInfo(
@@ -1118,6 +1153,49 @@ def create_app() -> FastAPI:
             state=state,
         )
 
+    # ---------------------------------------------------- training export
+    @app.post("/api/export/training", response_model=s.TrainingExportResponse)
+    def export_training(req: s.TrainingExportRequest) -> s.TrainingExportResponse:
+        """Export the journal as fine-tuning data, with an honest verdict.
+
+        The export always runs — it is the user's data — but it says
+        plainly when training on it would produce a worse model than the
+        one they started with, which at retail volumes is nearly always.
+        """
+        from ..llm.export import build_dataset
+        from ..llm.personalize import MIN_EXAMPLES, build_personalization
+
+        symbols = sorted({p.ticker.upper() for p in req.predictions})
+        try:
+            prices, _ = _load_market(
+                req.demo, req.credentials, symbols, _market_proxy(),
+                req.lookback_days,
+            )
+        except (AlpacaError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+        resolved = _resolve_journal(req.predictions, prices)
+        report = build_dataset(
+            resolved,
+            include_compile=req.include_compile,
+            include_calibration=req.include_calibration,
+        )
+        few_shot = build_personalization(resolved)
+
+        return s.TrainingExportResponse(
+            n_examples=report.n,
+            n_compile=report.n_compile,
+            n_calibrate=report.n_calibrate,
+            n_resolved=report.n_resolved,
+            hit_rate=report.hit_rate,
+            recommendation=report.recommendation,
+            warnings=report.warnings,
+            notes=report.notes,
+            summary=report.summary(),
+            jsonl=report.to_jsonl(),
+            few_shot_active=few_shot.n_used if few_shot.active else 0,
+        )
+
     # ------------------------------------------------------------- journal
     @app.post("/api/journal", response_model=s.JournalResponse)
     def journal(req: s.JournalRequest) -> s.JournalResponse:
@@ -1272,12 +1350,34 @@ def create_app() -> FastAPI:
                 # user can type the entry price themselves.
                 universe, prices_map = [], {}
 
+        # Personalize from the user's own resolved predictions. This is
+        # in-context learning, not fine-tuning: it works from a handful of
+        # examples, which is the scale a retail journal actually reaches.
+        personalization = ""
+        n_personalized = 0
+        if req.predictions:
+            try:
+                from ..journal.calibration import fit_calibration
+                from ..llm.personalize import build_personalization
+
+                resolved = _resolve_journal(req.predictions, prices)
+                report = fit_calibration(
+                    [r.confidence for r in resolved],
+                    [float(r.target_hit) for r in resolved],
+                )
+                personal = build_personalization(resolved, report)
+                personalization = personal.as_prompt_block()
+                n_personalized = personal.n_used
+            except (ValueError, KeyError, NameError):
+                personalization, n_personalized = "", 0
+
         compiler = ConvictionCompiler(prefer_llm=not req.offline)
         result = compiler.compile(
             req.text,
             universe or None,
             asset_class=asset_class(),
             prices=prices_map or None,
+            personalization=personalization,
         )
 
         out: list[s.CompiledViewOut] = []
@@ -1310,6 +1410,7 @@ def create_app() -> FastAPI:
             )
         return s.CompileResponse(
             engine=result.engine,
+            personalized_from=n_personalized,
             views=out,
             notes=result.notes,
             universe=universe,

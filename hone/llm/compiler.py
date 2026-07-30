@@ -35,6 +35,7 @@ class ConvictionCompiler:
         *,
         asset_class: str = "equities",
         prices: dict[str, float] | None = None,
+        personalization: str = "",
     ) -> CompileResult:
         text = (text or "").strip()
         if not text:
@@ -55,6 +56,7 @@ class ConvictionCompiler:
                         universe,
                         asset_class=asset_class,
                         today=today.isoformat(),
+                        personalization=personalization,
                     )
                 except ClaudeUnavailable as exc:
                     result = None
@@ -67,7 +69,15 @@ class ConvictionCompiler:
             fallback_note = None
 
         if result is None:
+            # The offline parser has no way to use in-context examples;
+            # note it rather than letting the UI imply personalization
+            # happened when it did not.
             result = compile_offline(text, universe, today_month=today.month)
+            if personalization:
+                result.notes.append(
+                    "Your track record personalizes the Claude compiler only; "
+                    "the offline parser ignores it."
+                )
             if fallback_note:
                 result.notes.insert(0, fallback_note)
 

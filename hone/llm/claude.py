@@ -101,6 +101,7 @@ def compile_with_claude(
     asset_class: str = "equities",
     today: str | None = None,
     timeout: float = 45.0,
+    personalization: str = "",
 ) -> CompileResult:
     """Compile ``text`` with Claude.
 
@@ -123,7 +124,10 @@ def compile_with_claude(
         message = client.messages.parse(
             model=MODEL,
             max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
+            # The user's own resolved predictions, appended rather than
+            # substituted: the rules above still bind, and the history
+            # only informs how this person's language is read.
+            system=SYSTEM_PROMPT + (personalization or ""),
             output_format=ThesisOut,
             messages=[
                 {

@@ -2,11 +2,11 @@
 
 Hedge-fund-grade risk tools for retail investors, in three parts:
 
-1. **Quantify your risk aversion** — a Holt-Laury Multiple Price List
-   questionnaire run through a Maximum Likelihood engine (CRRA utility +
-   Fechner noise) produces a rigorous point estimate of your
-   risk-aversion parameter **γ** and places you in one of **50 risk
-   tiers**.
+1. **Quantify your risk aversion** — eight adaptive questions, each chosen
+   to maximize what its answer reveals, place your risk-aversion
+   parameter **γ** in one of **50 risk tiers** with a credible interval.
+   The classic 30-question Holt-Laury menu with CRRA maximum-likelihood
+   estimation is still available and estimates the same model.
 2. **Measure your portfolio's risk** — an Alpaca paper-trading client
    pulls your holdings and price history, and a business-side
    covariance calculator (sample / EWMA / Ledoit-Wolf shrinkage) builds
@@ -237,6 +237,19 @@ described above. To turn it on, follow [docs/SUPABASE.md](docs/SUPABASE.md)
 (create a project, run the provided SQL with Row-Level Security, and fill
 in `hone/web/static/config.js`).
 
+## Measuring risk aversion in eight questions
+
+The 30-question Holt-Laury menu is still there, but the default is now
+adaptive (`hone/risk_profile/dose.py`): a Bayesian posterior over (γ, μ) is
+updated after every answer, and each question is chosen to maximize the
+information its answer is expected to carry. Eight questions match thirty
+fixed ones — and beat them by a factor of four to five for risk-averse
+users, because the classic menu's indifference points top out around γ ≈ 1.4
+and it simply cannot see above that. The page shows the posterior narrowing
+as you answer, and the credible interval is carried forward rather than
+rounded away. Method, the simulation results, and the limitations are in
+[docs/ADAPTIVE_ELICITATION.md](docs/ADAPTIVE_ELICITATION.md).
+
 ## The conviction loop
 
 Two features turn the pipeline above into something that improves with use.
@@ -270,6 +283,7 @@ export ANTHROPIC_API_KEY=...   # without it, the offline parser is used
 ## More docs
 
 - [docs/VISION.md](docs/VISION.md) — what Hone is and why.
+- [docs/ADAPTIVE_ELICITATION.md](docs/ADAPTIVE_ELICITATION.md) — DOSE: eight adaptive questions instead of thirty.
 - [docs/CALIBRATION.md](docs/CALIBRATION.md) — the decision journal, Brier scoring, and learned confidence.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.

@@ -128,6 +128,7 @@
   }
   .lottery:hover { border-color: var(--series-1); background: var(--accent-wash); }
   .lottery .tag { font-size: 12px; font-weight: 700; color: var(--ink-muted); letter-spacing: 0.06em; }
+  .lottery .choice-line { margin-top: 12px; font-size: 16.5px; font-weight: 550; line-height: 1.35; }
   .lottery .outcome { display: flex; justify-content: space-between; margin-top: 10px; font-variant-numeric: tabular-nums; }
   .lottery .outcome b { font-weight: 650; }
 
@@ -783,7 +784,109 @@ PAGES.start = () => {
 
 /* -------------------------------- 2. quiz -------------------------------- */
 let QUIZ = null;
+/* Two routes to the same parameter. The adaptive one (default) picks each
+   question from what it still doesn't know about you and stops after eight;
+   the full 30-question menu is kept for anyone who wants the classic
+   instrument. Both estimate the same model — see hone/risk_profile/dose.py. */
 PAGES.quiz = () => {
+  if (S.elicitation === "full") { renderFullQuiz(); return; }
+  $id("page").innerHTML = `<div class="card" id="quiz-card">
+    <h1>Which would you rather have?</h1>
+    <p class="lead">Pick the one you'd genuinely take — imagine the money is real.
+    There are no right answers. Each question is chosen from what your previous
+    answers left uncertain, so eight of them measure you as precisely as thirty
+    fixed ones. (Keyboard: A / B)</p>
+    <div class="spinner" id="q-spin">Preparing your first question…</div>
+    <div id="q-body"></div>
+    <div id="q-belief"></div>
+    <div class="navrow">
+      <button class="ghost" id="q-back">&larr; Exit</button>
+      <span></span>
+      <button class="ghost" id="q-full">Use the full 30-question version</button>
+    </div>
+  </div>`;
+  $id("q-back").onclick = () => go("start");
+  $id("q-full").onclick = () => { S.elicitation = "full"; save(); renderFullQuiz(); };
+  DOSE = { answers: [] };
+  stepDose();
+};
+
+let DOSE = null;
+
+async function stepDose() {
+  try {
+    const r = await api("/api/dose", { answers: DOSE.answers });
+    const spin = $id("q-spin"); if (spin) spin.remove();
+    renderBelief(r.state);
+    if (r.finished) { finishDose(r.state); return; }
+    const q = r.question;
+    $id("q-body").innerHTML = `
+      <div class="muted">Question ${q.number} of ${q.total}</div>
+      <div class="lottery-pair">
+        <div class="lottery" id="opt-a"><div class="tag">OPTION A</div>
+          <div class="choice-line">${esc(q.option_a)}</div></div>
+        <div class="lottery" id="opt-b"><div class="tag">OPTION B</div>
+          <div class="choice-line">${esc(q.option_b)}</div></div>
+      </div>`;
+    $id("opt-a").onclick = () => answerDose(q.question_id, "A");
+    $id("opt-b").onclick = () => answerDose(q.question_id, "B");
+    $id("q-back").textContent = DOSE.answers.length ? "← Back" : "← Exit";
+    $id("q-back").onclick = () => {
+      if (!DOSE.answers.length) { go("start"); return; }
+      DOSE.answers.pop(); stepDose();
+    };
+  } catch (e) {
+    $id("q-body").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+function answerDose(qid, choice) {
+  DOSE.answers.push({ question_id: qid, choice });
+  $id("q-body").innerHTML = `<div class="spinner">Choosing the next question…</div>`;
+  stepDose();
+}
+
+/* The posterior, drawn live. Watching the belief narrow is the clearest
+   possible answer to "why are you asking me this?" — and it makes the
+   remaining uncertainty impossible to overlook, which a single point
+   estimate hides. */
+function renderBelief(st) {
+  const el = $id("q-belief");
+  if (!el || !st.n_answers) { if (el) el.innerHTML = ""; return; }
+  const m = st.gamma_marginal, g = st.gamma_grid;
+  const peak = Math.max(...m) || 1;
+  const bars = m.map((v, i) => {
+    const inCI = g[i] >= st.gamma_ci90[0] && g[i] <= st.gamma_ci90[1];
+    return `<div style="flex:1;height:${Math.max(1, (v / peak) * 100)}%;
+      background:${inCI ? "var(--series-1)" : "var(--grid)"};border-radius:1px"></div>`;
+  }).join("");
+  el.innerHTML = `
+    <h2>What we believe about you so far</h2>
+    <div style="display:flex;align-items:flex-end;gap:1px;height:70px;margin-bottom:4px">${bars}</div>
+    <div class="gauge"><div class="axis"><span>risk-seeking</span><span>neutral</span><span>very risk-averse</span></div></div>
+    <div class="muted" style="margin-top:6px">γ ≈ ${st.gamma.toFixed(2)}
+      (90% credible: ${st.gamma_ci90[0].toFixed(2)} to ${st.gamma_ci90[1].toFixed(2)})
+      — tier ${st.tier.tier} of 50 after ${st.n_answers} question${st.n_answers === 1 ? "" : "s"}.</div>`;
+}
+
+async function finishDose(st) {
+  $id("q-body").innerHTML = `<div class="spinner">Finishing your profile…</div>`;
+  /* The profile page expects the MLE result shape. The adaptive route
+     reports a credible interval rather than a confidence interval — a
+     different object with a similar job — and says so on the page. */
+  S.gamma = st.gamma;
+  S.profile = {
+    gamma: st.gamma, mu: st.mu, se_gamma: st.gamma_sd,
+    gamma_ci95: st.gamma_ci90, interval: st.gamma_ci90,
+    tier: st.tier, monotone: [], n_obs: st.n_answers, converged: true,
+    summary: st.summary, adaptive: true,
+  };
+  save();
+  RUNTIME.optimize = null;
+  go("profile");
+}
+
+function renderFullQuiz() {
   $id("page").innerHTML = `<div class="card" id="quiz-card">
     <h1>Which would you rather play?</h1>
     <p class="lead">For each pair, pick the lottery you'd genuinely prefer —
@@ -792,7 +895,7 @@ PAGES.quiz = () => {
     <div id="q-body"></div>
   </div>`;
   startQuiz();
-};
+}
 async function startQuiz() {
   try {
     if (!RUNTIME.menu) RUNTIME.menu = await api("/api/menu");
@@ -829,9 +932,12 @@ function renderQuestion() {
   };
 }
 document.addEventListener("keydown", (e) => {
-  if (currentStep() !== "quiz" || !QUIZ) return;
-  if (e.key === "a" || e.key === "A") answer("A");
-  if (e.key === "b" || e.key === "B") answer("B");
+  if (currentStep() !== "quiz") return;
+  const key = (e.key || "").toUpperCase();
+  if (key !== "A" && key !== "B") return;
+  const opt = $id("opt-" + key.toLowerCase());
+  if (opt) opt.click();          // adaptive route
+  else if (QUIZ) answer(key);    // full 30-question menu
 });
 async function answer(c) {
   QUIZ.choices[QUIZ.flat[QUIZ.idx].r].push(c);
@@ -854,7 +960,12 @@ PAGES.profile = () => {
   const p = S.profile;
   if (!p) { go("portfolio"); return; }
   const ci = p.gamma_ci95 ? `${p.gamma_ci95[0].toFixed(2)} … ${p.gamma_ci95[1].toFixed(2)}` : "—";
-  const consistent = p.monotone.every(Boolean);
+  /* The two routes produce different objects doing a similar job: the MLE
+     gives a confidence interval and switch-point bounds, the adaptive route
+     a Bayesian credible interval and a posterior s.d. Label them honestly
+     rather than pretending one is the other. */
+  const adaptive = !!p.adaptive;
+  const consistent = adaptive || (p.monotone || []).every(Boolean);
   $id("page").innerHTML = `
   <div class="card">
     <h1>Your risk profile</h1>
@@ -862,14 +973,18 @@ PAGES.profile = () => {
     <div class="muted">Tier ${p.tier.tier} of ${p.tier.num_tiers} — ${p.tier.category}</div>
     ${gaugeHTML([{tier: p.tier.tier, label: "you", style: "a"}])}
     <div class="tiles">
-      <div class="tile"><div class="k">Switch-point bounds</div><div class="v">${p.interval[0].toFixed(2)} … ${p.interval[1].toFixed(2)}</div></div>
-      <div class="tile"><div class="k">95% confidence (MLE)</div><div class="v">${ci}</div></div>
+      <div class="tile"><div class="k">${adaptive ? "90% credible interval" : "Switch-point bounds"}</div><div class="v">${p.interval[0].toFixed(2)} … ${p.interval[1].toFixed(2)}</div></div>
+      <div class="tile"><div class="k">${adaptive ? "Posterior s.d." : "95% confidence (MLE)"}</div><div class="v">${adaptive ? p.se_gamma.toFixed(2) : ci}</div></div>
       <div class="tile"><div class="k">Decision noise μ</div><div class="v">${p.mu.toFixed(3)}</div></div>
-      <div class="tile"><div class="k">Choices used</div><div class="v">${p.n_obs}</div></div>
+      <div class="tile"><div class="k">${adaptive ? "Questions asked" : "Choices used"}</div><div class="v">${p.n_obs}</div></div>
     </div>
-    <div class="note">${consistent
-      ? "Your choices were internally consistent — the estimate is sharp."
-      : "Some rounds had multiple switch points; the noise parameter μ absorbs that inconsistency."}
+    <div class="note">${adaptive
+      ? `Estimated adaptively from ${p.n_obs} questions — each one picked from what your
+         previous answers left uncertain. The interval is real: γ is inferred, not observed,
+         and everything downstream inherits that width.`
+      : (consistent
+        ? "Your choices were internally consistent — the estimate is sharp."
+        : "Some rounds had multiple switch points; the noise parameter μ absorbs that inconsistency.")}
       Next: let's see how the portfolio you <i>actually hold</i> compares to this number.</div>
     ${navRow("quiz", "See my portfolio →")}
   </div>`;

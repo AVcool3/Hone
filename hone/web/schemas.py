@@ -363,3 +363,45 @@ class ConfidenceAdjustment(BaseModel):
 # Forward references used above are defined later in this module.
 OptimizeRequest.model_rebuild()
 OptimizeResponse.model_rebuild()
+
+
+# ------------------------------------------------- DOSE adaptive elicitation
+class DoseAnswerIn(BaseModel):
+    question_id: int
+    choice: str  # "A" or "B"
+
+
+class DoseRequest(BaseModel):
+    answers: list[DoseAnswerIn] = []
+    n_questions: int = Field(default=8, ge=3, le=20)
+
+
+class DoseQuestionOut(BaseModel):
+    question_id: int
+    number: int  # 1-based position in this user's sequence
+    total: int
+    option_a: str
+    option_b: str
+    #: Bits of information this answer is expected to carry. Shown as a
+    #: progress signal, not a demand on the user.
+    expected_information_gain: float
+
+
+class DoseStateOut(BaseModel):
+    gamma: float
+    gamma_sd: float
+    gamma_ci90: tuple[float, float]
+    mu: float
+    n_answers: int
+    tier: TierInfo
+    tier_confidence: float
+    #: Posterior density over the gamma grid, for the live belief chart.
+    gamma_grid: list[float]
+    gamma_marginal: list[float]
+    summary: str
+
+
+class DoseResponse(BaseModel):
+    finished: bool
+    question: DoseQuestionOut | None
+    state: DoseStateOut

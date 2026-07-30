@@ -754,6 +754,60 @@ def create_app() -> FastAPI:
         )
         return opt.hedge_plan
 
+    # ----------------------------------------------- adaptive elicitation
+    @app.post("/api/dose", response_model=s.DoseResponse)
+    def dose(req: s.DoseRequest) -> s.DoseResponse:
+        """Serve the next adaptive question, or the finished estimate.
+
+        Stateless: the client holds the answers and posts all of them each
+        time.  The posterior is a pure function of that list, so replaying
+        it is exact and there is no session to expire mid-questionnaire.
+        Answers reference the server's question bank by index, so a client
+        cannot rewrite the experiment it is being scored on.
+        """
+        from ..risk_profile import dose as D
+
+        try:
+            answers = [
+                D.DoseAnswer(question_id=a.question_id, choice=a.choice)
+                for a in req.answers
+            ]
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+        post = D.posterior(answers)
+        result = D.summarize(answers)
+        state = s.DoseStateOut(
+            gamma=result.gamma,
+            gamma_sd=result.gamma_sd,
+            gamma_ci90=result.gamma_ci90,
+            mu=result.mu,
+            n_answers=result.n_answers,
+            tier=_tier_info(result.gamma),
+            tier_confidence=result.tier_confidence,
+            gamma_grid=[float(g) for g in D.GAMMA_GRID],
+            gamma_marginal=result.gamma_marginal,
+            summary=result.summary,
+        )
+
+        if D.is_finished(post, n_questions=req.n_questions):
+            return s.DoseResponse(finished=True, question=None, state=state)
+
+        qid, gain = D.next_question(answers, post)
+        text_a, text_b = D.question_text(D.QUESTION_BANK[qid])
+        return s.DoseResponse(
+            finished=False,
+            question=s.DoseQuestionOut(
+                question_id=qid,
+                number=len(answers) + 1,
+                total=req.n_questions,
+                option_a=text_a,
+                option_b=text_b,
+                expected_information_gain=gain,
+            ),
+            state=state,
+        )
+
     # ------------------------------------------------------------- journal
     @app.post("/api/journal", response_model=s.JournalResponse)
     def journal(req: s.JournalRequest) -> s.JournalResponse:

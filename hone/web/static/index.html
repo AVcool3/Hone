@@ -36,6 +36,15 @@
     --ramp-lo: #86b6ef;
     --ramp-hi: #0d366b;
     --accent-wash: rgba(42,120,214,0.10);
+    --accent-crypto: #c74a1c;        /* 4.75:1 with white text */
+    --accent-crypto-wash: rgba(199,74,28,0.10);
+  }
+  /* Crypto is a distinct product, so it carries a distinct accent. */
+  :root[data-product="crypto"] {
+    --series-1: var(--accent-crypto);
+    --accent-wash: var(--accent-crypto-wash);
+    --ramp-lo: #f0a882;
+    --ramp-hi: #6b2409;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -54,6 +63,12 @@
       --ramp-lo: #3987e5;
       --ramp-hi: #184f95;
       --accent-wash: rgba(57,135,229,0.16);
+      --accent-crypto: #c74a1c;
+      --accent-crypto-wash: rgba(217,89,38,0.18);
+    }
+    :root[data-product="crypto"] {
+      --ramp-lo: #d95926;
+      --ramp-hi: #7c2d10;
     }
   }
   * { box-sizing: border-box; margin: 0; }
@@ -174,12 +189,33 @@
   footer { color: var(--ink-muted); font-size: 12.5px; margin-top: 26px; }
   a.link { color: var(--series-1); text-decoration: none; font-weight: 550; }
   a.link:hover { text-decoration: underline; }
-  .product-tabs { display: flex; gap: 4px; margin: 4px 0 12px; }
-  .product-tabs a { text-decoration: none; font-size: 13.5px; font-weight: 600;
-    color: var(--ink-2); padding: 6px 14px; border-radius: 999px;
-    border: 1px solid var(--border); background: var(--surface-1); }
-  .product-tabs a.active { background: var(--series-1); border-color: transparent; color: #fff; }
-  .product-tabs a:hover:not(.active) { border-color: var(--series-1); color: var(--series-1); }
+  .switcher-row { display: flex; justify-content: center; margin: 10px 0 20px; }
+  .product-tabs { position: relative; display: flex; padding: 4px;
+    background: var(--page); border: 1px solid var(--border); border-radius: 999px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); }
+  .product-tabs .thumb { position: absolute; top: 4px; bottom: 4px; left: 4px;
+    width: calc(50% - 4px); border-radius: 999px; background: var(--series-1);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+    transition: transform 0.28s cubic-bezier(0.4,0,0.2,1), background 0.28s ease; }
+  .product-tabs[data-active="crypto"] .thumb { transform: translateX(100%);
+    background: var(--accent-crypto); }
+  .product-tabs a { position: relative; z-index: 1; display: flex; align-items: center;
+    justify-content: center; gap: 8px; min-width: 148px; padding: 10px 20px;
+    font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em;
+    color: var(--ink-2); text-decoration: none; border-radius: 999px;
+    transition: color 0.2s ease; }
+  .product-tabs a .ico { font-size: 15px; line-height: 1; }
+  .product-tabs a.active { color: #fff; }
+  .product-tabs a:not(.active):hover { color: var(--ink-1); }
+  .product-tabs .badge { font-size: 10px; font-weight: 800; letter-spacing: 0.07em;
+    padding: 2px 6px; border-radius: 5px; background: var(--accent-crypto);
+    color: #fff; transition: opacity 0.2s ease; }
+  .product-tabs a.active .badge { background: rgba(255,255,255,0.28); }
+  @media (max-width: 460px) {
+    .product-tabs a { min-width: 0; flex: 1; padding: 10px 12px; font-size: 13.5px; }
+    .product-tabs { width: 100%; }
+    .switcher-row { display: block; }
+  }
   .account-bar { display: flex; justify-content: flex-end; align-items: center; gap: 10px;
     font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
   .account-bar[hidden] { display: none; }
@@ -237,10 +273,13 @@
 </head>
 <body>
 <div class="wrap">
-  <nav class="product-tabs" aria-label="Choose asset class">
-    <a href="/" data-ac="equities">Stocks</a>
-    <a href="/crypto" data-ac="crypto">Crypto</a>
-  </nav>
+  <div class="switcher-row">
+    <nav class="product-tabs" id="product-tabs" aria-label="Choose asset class">
+      <span class="thumb" aria-hidden="true"></span>
+      <a href="/" data-ac="equities"><span class="ico" aria-hidden="true">📈</span>Stocks</a>
+      <a href="/crypto" data-ac="crypto"><span class="ico" aria-hidden="true">₿</span>Crypto<span class="badge">NEW</span></a>
+    </nav>
+  </div>
   <div id="account-bar" class="account-bar" hidden></div>
   <div class="stepbar" id="stepbar" hidden>
     <span class="brand">Hone</span>
@@ -1321,8 +1360,13 @@ PAGES.signup = () => {
    product; the layout and protocol are identical, only wording changes. */
 let CFG = null;
 async function applyAssetClass() {
-  document.querySelectorAll(".product-tabs a").forEach(a =>
-    a.classList.toggle("active", a.dataset.ac === ASSET_CLASS));
+  document.querySelectorAll(".product-tabs a").forEach(a => {
+    const on = a.dataset.ac === ASSET_CLASS;
+    a.classList.toggle("active", on);
+    a.setAttribute("aria-current", on ? "page" : "false");
+  });
+  $id("product-tabs").dataset.active = ASSET_CLASS;
+  document.documentElement.dataset.product = ASSET_CLASS;
   try { CFG = await api("/api/config"); } catch { return; }
   if (!CFG || CFG.asset_class !== "crypto") return;
   const c = CFG.copy;

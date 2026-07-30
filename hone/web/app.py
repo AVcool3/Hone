@@ -1344,6 +1344,66 @@ def create_app() -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        # The same curves, with the investor allowed to be a person.
+        behavior = None
+        try:
+            from ..backtest.behavior import (
+                behavior_gap,
+                matching_advantage,
+                panic_threshold,
+            )
+
+            dates = pd.to_datetime(result.strategies[0].dates)
+            curves = {
+                st.name: pd.Series(st.equity_curve, index=dates)
+                for st in result.strategies
+            }
+            sims = behavior_gap(
+                curves, gamma=req.gamma, periods_per_year=_periods_per_year()
+            )
+            adv = matching_advantage(sims)
+            labels = {st.name: st.label for st in result.strategies}
+            threshold = panic_threshold(req.gamma)
+            worst = max(sims.values(), key=lambda b: b.behavior_gap)
+            summary = (
+                f"At your risk tier you're modelled as selling out after a "
+                f"{threshold:.0%} drawdown, and buying back once the market has "
+                f"recovered 10% off its low. That costs the worst of these "
+                f"strategies {worst.behavior_gap:.1%} a year"
+                + (
+                    " — and it changes which one wins."
+                    if adv.get("ranking_changed")
+                    else ", without changing which one wins."
+                )
+            )
+            behavior = s.BehaviorOut(
+                panic_threshold=threshold,
+                rows=[
+                    s.BehaviorRow(
+                        name=name,
+                        label=labels.get(name, name),
+                        paper_cagr=b.paper_metrics.get("cagr", 0.0),
+                        realized_cagr=b.realized_metrics.get("cagr", 0.0),
+                        behavior_gap=b.behavior_gap,
+                        max_drawdown=b.paper_metrics.get("max_drawdown", 0.0),
+                        panics=len(b.panics),
+                        time_in_cash=b.time_in_cash,
+                        cost_drag=b.cost_drag,
+                    )
+                    for name, b in sims.items()
+                ],
+                best_on_paper=labels.get(
+                    adv.get("best_on_paper", ""), adv.get("best_on_paper", "")
+                ),
+                best_as_held=labels.get(
+                    adv.get("best_as_held", ""), adv.get("best_as_held", "")
+                ),
+                ranking_changed=bool(adv.get("ranking_changed")),
+                summary=summary,
+            )
+        except (ValueError, KeyError, IndexError):
+            behavior = None
+
         return s.BacktestResponse(
             gamma=result.gamma,
             start=result.start,
@@ -1357,6 +1417,7 @@ def create_app() -> FastAPI:
                 )
                 for st in result.strategies
             ],
+            behavior=behavior,
         )
 
     return app

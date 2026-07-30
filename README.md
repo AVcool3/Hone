@@ -254,6 +254,20 @@ as you answer, and the credible interval is carried forward rather than
 rounded away. Method, the simulation results, and the limitations are in
 [docs/ADAPTIVE_ELICITATION.md](docs/ADAPTIVE_ELICITATION.md).
 
+## The behaviour gap
+
+Every backtest here assumed you held the strategy through everything it did.
+Almost nobody does. `hone/backtest/behavior.py` drops that assumption: your γ
+sets a tolerable drawdown through the same Merton budget the hedge page uses,
+you're modelled as capitulating past it, and you buy back only once the market
+has climbed 10% off its low — which is what makes it expensive, because it
+means buying above the bottom. Trading costs and the cash rate are both
+charged. The evidence page now shows what the same strategies returned *as
+you'd have held them*. The tier-matched portfolio has the smallest gap of the
+diversified strategies, which is the whole argument for sizing a portfolio to
+what you can sit through. See [docs/BEHAVIOR_GAP.md](docs/BEHAVIOR_GAP.md),
+including the case where capitulating is the right call.
+
 ## Views that aren't price targets
 
 Black-Litterman needs a linear statement about an expected return under a
@@ -326,6 +340,7 @@ export ANTHROPIC_API_KEY=...   # without it, the offline parser is used
 - [docs/BACKTEST_CONVICTION.md](docs/BACKTEST_CONVICTION.md) — does any of the conviction machinery actually help, and for whom.
 - [docs/TAIL_RISK.md](docs/TAIL_RISK.md) — CVaR, why variance isn't enough, and what the tail page does not know.
 - [docs/FLEXIBLE_VIEWS.md](docs/FLEXIBLE_VIEWS.md) — entropy pooling: probability, ranking and conditional views.
+- [docs/BEHAVIOR_GAP.md](docs/BEHAVIOR_GAP.md) — what you'd actually have got, once you're allowed to panic.
 - [docs/CALIBRATION.md](docs/CALIBRATION.md) — the decision journal, Brier scoring, and learned confidence.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.

@@ -1646,7 +1646,53 @@ function renderBacktest(r) {
     <div class="muted" style="margin-top:8px">Sharpe = return per unit of risk (higher is better).
     Max drawdown = worst peak-to-trough fall (the number that makes people sell). "Performance-chasing"
     = 100% in the recent top performer; a stand-in for undisciplined investing. Past performance does
-    not predict future results.</div>`;
+    not predict future results.</div>
+    ${behaviorHTML(r.behavior)}`;
+}
+
+/* Every table above assumes you held the strategy through everything it did.
+   Almost nobody does. This is the same backtest with that assumption dropped. */
+function behaviorHTML(b) {
+  if (!b) return "";
+  const rows = [...b.rows].sort((x, y) => y.behavior_gap - x.behavior_gap).map(r => `
+    <tr>
+      <td>${esc(r.label)}</td>
+      <td class="num">${fmtSPct(r.paper_cagr)}</td>
+      <td class="num">${fmtSPct(r.realized_cagr)}</td>
+      <td class="num ${r.behavior_gap > 0.005 ? "sell" : (r.behavior_gap < -0.005 ? "buy" : "")}">
+        ${fmtSPct(-r.behavior_gap)}</td>
+      <td class="num">${r.panics}</td>
+      <td class="num">${fmtPct(r.time_in_cash, 0)}</td>
+    </tr>`).join("");
+
+  return `
+    <h2 style="margin-top:24px">What you'd actually have got</h2>
+    <p class="lead">Every number above assumes you held the strategy through
+    everything it did — including the worst of it. Almost nobody does. Here is the
+    same backtest with one assumption dropped: that you don't sell when it hurts.</p>
+    <div class="note">${esc(b.summary)}</div>
+    <div style="overflow-x:auto"><table>
+      <tr><th>Strategy</th><th class="num">On paper</th><th class="num">As you'd have held it</th>
+        <th class="num">Difference</th><th class="num">Times you sold</th><th class="num">Time in cash</th></tr>
+      ${rows}
+    </table></div>
+    <div class="muted" style="margin-top:8px">
+      The sell rule isn't invented: your γ sets a tolerable loss through the same
+      Merton budget the hedge page uses, and you're modelled as capitulating past
+      it. Buying back waits until the market has climbed 10% off its low — which is
+      what makes it expensive, because it means buying above the bottom. Trading
+      costs are charged at 10bp a switch and cash earns 4%.
+    </div>
+    <div class="note">${b.ranking_changed
+      ? `<b>The ranking changed.</b> <i>${esc(b.best_on_paper)}</i> wins on paper;
+         <i>${esc(b.best_as_held)}</i> wins once you're allowed to be a person. This
+         is the argument for sizing a portfolio to what you can sit through rather
+         than to what backtests best — but it is one path, and single paths are
+         noisy.`
+      : `The ranking held: <i>${esc(b.best_on_paper)}</i> wins either way on this
+         path. A portfolio matched to your tolerance is meant to be one you keep
+         holding; here it wasn't tested, because nothing fell far enough to make
+         you sell.`}</div>`;
 }
 
 /* ------------------------- dedicated signup page ------------------------- */

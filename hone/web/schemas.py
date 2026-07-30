@@ -218,6 +218,29 @@ class StrategyOut(BaseModel):
     metrics: dict[str, float]
 
 
+class BehaviorRow(BaseModel):
+    """One strategy, held perfectly vs. held by a person."""
+
+    name: str
+    label: str
+    paper_cagr: float
+    realized_cagr: float
+    behavior_gap: float
+    max_drawdown: float
+    panics: int
+    time_in_cash: float
+    cost_drag: float
+
+
+class BehaviorOut(BaseModel):
+    panic_threshold: float
+    rows: list[BehaviorRow]
+    best_on_paper: str
+    best_as_held: str
+    ranking_changed: bool
+    summary: str
+
+
 class BacktestResponse(BaseModel):
     gamma: float
     start: str
@@ -225,6 +248,9 @@ class BacktestResponse(BaseModel):
     rebalances: int
     headline: str
     strategies: list[StrategyOut]
+    #: What the same curves look like once the investor is allowed to
+    #: capitulate. None when the panic simulation could not be run.
+    behavior: "BehaviorOut | None" = None
 
 
 # -------------------------------------------------- conviction compiler (LLM)
@@ -518,3 +544,6 @@ class PoolingResponse(BaseModel):
     cvar_before: float
     cvar_after: float
     summary: str
+
+
+BacktestResponse.model_rebuild()

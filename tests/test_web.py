@@ -158,7 +158,10 @@ class TestOptimize:
             },
         )
         assert res.status_code == 422
-        assert "ZZZZ" in res.json()["detail"]
+        detail = res.json()["detail"]
+        assert "ZZZZ" in detail
+        # the message must say what the user *can* pick
+        assert "Available here" in detail and "TSLA" in detail
 
     def test_confidence_validation(self, client):
         res = client.post(

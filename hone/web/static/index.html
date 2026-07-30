@@ -932,12 +932,15 @@ function renderPortfolio(data) {
 
 /* ------------------------------- 5. views -------------------------------- */
 PAGES.views = () => {
+  const known = ((RUNTIME.portfolio && RUNTIME.portfolio.positions) || []).map(p => p.symbol);
   $id("page").innerHTML = `<div class="card">
     <h1>Your views</h1>
     <p class="lead">Have conviction about a stock? Name it, give a target price,
     say how confident you are, and the optimizer will blend it against market
     equilibrium — trusted exactly as much as you trust it. No views is fine
     too: you'll get a pure risk-based rebalance.</p>
+    ${known.length ? `<div class="muted" style="margin-bottom:8px">Available in this portfolio: ${known.join(", ")}</div>` : ""}
+    <datalist id="symbol-options"></datalist>
     <div id="views-list"></div>
     <button class="ghost" id="add-view" style="margin-top:8px">+ Add a view</button>
     <div class="row" style="margin-top:16px">
@@ -949,12 +952,15 @@ PAGES.views = () => {
     <div id="v-error"></div>
     ${navRow("portfolio", "Optimize my portfolio →")}
   </div>`;
+  const dl = $id("symbol-options");
+  if (dl && known.length) dl.innerHTML = known.map(sym => `<option value="${sym}">`).join("");
   const list = $id("views-list");
   const addRow = (v={}) => {
     const div = document.createElement("div");
     div.className = "row view-row";
     div.innerHTML = `
-      <label class="field"><span>Ticker</span><input type="text" class="v-ticker" placeholder="TSLA" value="${v.ticker||""}"></label>
+      <label class="field"><span>Ticker</span><input type="text" class="v-ticker" list="symbol-options"
+        placeholder="${(CFG && CFG.copy && CFG.copy.example_ticker) || "TSLA"}" value="${v.ticker||""}"></label>
       <label class="field"><span>Target price $</span><input type="number" class="v-target" step="0.01" min="0" value="${v.target_price||""}"></label>
       <label class="field"><span>Confidence %</span><input type="number" class="v-conf" step="5" min="5" max="100" value="${v.confidence != null ? Math.round(v.confidence*100) : 50}"></label>
       <label class="field"><span>Horizon (days)</span><input type="number" class="v-days" step="1" min="7" value="${v.horizon_days||365}"></label>
@@ -1186,16 +1192,22 @@ PAGES.tutorial = () => {
 };
 
 /* -------------------------- guided (self-running) demo ------------------- */
-const DEMO_SCRIPT = [
+const DEMO_EXAMPLE = () => ASSET_CLASS === "crypto"
+  ? { ticker: "SOL/USD", target_price: 3000, label: "SOL to $3,000", word: "a coin" }
+  : { ticker: "TSLA", target_price: 220, label: "TSLA to $220", word: "a stock" };
+const DEMO_SCRIPT = () => { const e = DEMO_EXAMPLE(); return [
   ["start", "This is Hone. It measures your personal risk tolerance, then builds and hedges a portfolio around it. Let's watch a full run on demo data."],
   ["portfolio", "First it reads your holdings and measures their risk — and shows the tier your portfolio is invested like versus the tier your answers imply."],
-  ["views", "You can add a conviction: a stock, a target price, and how confident you are. Here: TSLA to $220, 60% confident."],
+  ["views", `You can add a conviction: ${e.word}, a target price, and how confident you are. Here: ${e.label}, 60% confident.`],
   ["optimize", "Black-Litterman blends that view with the market, then mean-variance optimization reweights the portfolio to your risk number — with a reason for every trade."],
   ["hedge", "Finally it sizes hedges to your dollar risk budget and shows what past crashes would do to your portfolio."],
   ["done", "That's the whole loop: measure, diagnose, rebalance, hedge. Try it yourself — demo mode needs no account."],
-];
+]; };
 async function runGuidedDemo() {
-  S.demo = true; S.gamma = null; S.profile = null; S.views = [{ticker:"TSLA", target_price:220, confidence:0.6, horizon_days:365}]; save();
+  const ex = DEMO_EXAMPLE();
+  S.demo = true; S.gamma = null; S.profile = null;
+  S.views = [{ticker: ex.ticker, target_price: ex.target_price, confidence: 0.6, horizon_days: 365}];
+  save();
   RUNTIME.optimize = null;
   // caption overlay
   let cap = $id("demo-cap");
@@ -1211,7 +1223,7 @@ async function runGuidedDemo() {
   RUNTIME.demoStop = false;
 
   // prime the optimize result so the later pages render
-  for (const [step, text] of DEMO_SCRIPT) {
+  for (const [step, text] of DEMO_SCRIPT()) {
     if (RUNTIME.demoStop) return;
     if (step === "optimize" && !RUNTIME.optimize) {
       setCap("Optimizing…");

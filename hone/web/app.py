@@ -473,7 +473,11 @@ def create_app() -> FastAPI:
                 ticker = normalize_symbol(ticker)
             if ticker not in prices.columns or prices[ticker].dropna().empty:
                 raise HTTPException(
-                    status_code=422, detail=f"No price history for {ticker}"
+                    status_code=422,
+                    detail=(
+                        f"No price history for {ticker}. Available here: "
+                        + ", ".join(map(str, prices.columns))
+                    ),
                 )
             views.append(
                 View(

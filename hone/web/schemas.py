@@ -116,6 +116,10 @@ class OptimizeRequest(BaseModel):
     lookback_days: int = 504
     hedge_instrument: str = "SPY"
     portfolio_value: float | None = None  # override; else account equity / demo default
+    #: Fitted confidence calibration from the user's decision journal. When
+    #: present and actionable, stated confidences are mapped through it
+    #: before Black-Litterman sees them.
+    calibration: "CalibrationMap | None" = None
 
 
 class ReturnRow(BaseModel):
@@ -176,6 +180,8 @@ class OptimizeResponse(BaseModel):
     volatility: float
     utility: float
     hedge_plan: HedgePlanOut
+    #: Present only when a calibration map changed at least one confidence.
+    confidence_adjustments: "list[ConfidenceAdjustment] | None" = None
 
 
 class HedgeRequest(BaseModel):
@@ -256,3 +262,104 @@ class CompileResponse(BaseModel):
     notes: list[str] = []
     #: Symbols the user can name, so the UI can offer a picker on failure.
     universe: list[str] = []
+
+
+# ------------------------------------------- decision journal / calibration
+class PredictionIn(BaseModel):
+    """One journalled prediction, as stored in the browser."""
+
+    id: str = ""
+    ticker: str
+    direction: str = "bullish"
+    entry_price: float = Field(gt=0)
+    target_price: float = Field(gt=0)
+    confidence: float = Field(gt=0, le=1)
+    horizon_days: float = Field(gt=0, default=365.0)
+    thesis: str = ""
+    created_at: str  # ISO 8601, frozen at decision time
+
+
+class JournalRequest(BaseModel):
+    predictions: list[PredictionIn] = []
+    demo: bool = False
+    credentials: AlpacaCredentials | None = None
+    lookback_days: int = 1260
+    #: In demo mode with an empty journal, synthesize a plausible track
+    #: record so the page shows what it is for.
+    seed_demo_history: bool = False
+
+
+class ResolutionOut(BaseModel):
+    prediction: PredictionIn
+    final_price: float
+    target_hit: bool
+    direction_hit: bool
+    touched: bool
+    realized_return: float
+    resolved_at: str
+    brier: float
+
+
+class OpenPredictionOut(BaseModel):
+    prediction: PredictionIn
+    days_remaining: float
+    current_price: float | None = None
+    progress: float | None = None  # 0-1 of the way from entry to target
+
+
+class ReliabilityBin(BaseModel):
+    lower: float
+    upper: float
+    n: int
+    mean_confidence: float | None = None
+    hit_rate: float | None = None
+
+
+class CalibrationOut(BaseModel):
+    n: int
+    brier: float | None = None
+    base_rate: float | None = None
+    mean_confidence: float | None = None
+    intercept: float = 0.0
+    slope: float = 1.0
+    reliability: float | None = None
+    resolution: float | None = None
+    uncertainty: float | None = None
+    skill_vs_base_rate: float | None = None
+    bins: list[ReliabilityBin] = []
+    actionable: bool = False
+    direction_hit_rate: float | None = None
+    summary: str = ""
+    #: Worked example of the map: what a few stated levels become.
+    examples: list[dict] = []
+
+
+class JournalResponse(BaseModel):
+    resolved: list[ResolutionOut]
+    open: list[OpenPredictionOut]
+    calibration: CalibrationOut
+    seeded: bool = False
+
+
+class CalibrationMap(BaseModel):
+    """The fitted map, sent back with an optimize request.
+
+    The client stores the journal; the server owns the arithmetic, so the
+    adjustment applied to a view is computed in one place only.
+    """
+
+    intercept: float = 0.0
+    slope: float = 1.0
+    actionable: bool = False
+    n: int = 0
+
+
+class ConfidenceAdjustment(BaseModel):
+    ticker: str
+    stated: float
+    used: float
+
+
+# Forward references used above are defined later in this module.
+OptimizeRequest.model_rebuild()
+OptimizeResponse.model_rebuild()

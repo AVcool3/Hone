@@ -439,7 +439,7 @@ const STEPS = ["start", "quiz", "profile", "portfolio", "views", "optimize", "he
 const STEP_LABELS = {start:"Start", quiz:"Questionnaire", profile:"Your profile", portfolio:"Portfolio",
                      views:"Your views", optimize:"Rebalance", hedge:"Hedge", done:"Summary"};
 /* standalone pages outside the linear flow (no progress bar) */
-const ASIDE_PAGES = ["tutorial", "analytics", "signup"];
+const ASIDE_PAGES = ["tutorial", "analytics", "signup", "journal"];
 
 /* STATE_KEY must be defined before the first load() call: it is a `const`,
    so calling load() above this line throws a temporal-dead-zone
@@ -1122,7 +1122,14 @@ PAGES.views = () => {
         gamma: S.gamma, views: S.views, max_weight: S.maxWeight,
         portfolio_value: S.portfolioValue ?? null,
       });
+      /* if the user has a scored track record, send the fitted map so the
+         server rescales their stated confidence before Black-Litterman */
+      if (S.calibration && S.calibration.actionable && S.useCalibration !== false) {
+        body.calibration = S.calibration;
+      }
       RUNTIME.optimize = await api("/api/optimize", body);
+      /* the decision is made: log it now, at the server's prices */
+      journalRecord(RUNTIME.optimize.views);
       go("optimize");
     } catch (e) {
       $id("v-error").innerHTML = `<div class="error">${esc(e.message)}</div>`;
@@ -1156,9 +1163,17 @@ PAGES.optimize = () => {
   const dollarRet = value ? ` <span class="s">(≈ ${fmtMoney(r.expected_return*value,0)}/yr on ${fmtMoney(value,0)})</span>` : "";
   let returnsBlock = "";
   if (r.returns) {
+    /* when the user's own track record rescaled their confidence, say so
+       here rather than silently applying it — it changed their answer */
+    const adj = r.confidence_adjustments || [];
+    const adjBlock = adj.length ? `<div class="note">
+      Your confidence was rescaled from your track record:
+      ${adj.map(a => `<b>${esc(a.ticker)}</b> ${fmtPct(a.stated,0)} → ${fmtPct(a.used,0)}`).join(", ")}.
+      <a class="link" href="#/journal">See your record</a> or turn this off there.</div>` : "";
     returnsBlock = `
     <h2>What your views did to expected returns</h2>
-    ${r.views.map(v => `<div class="note">${v.description}</div>`).join("")}
+    ${adjBlock}
+    ${r.views.map(v => `<div class="note">${esc(v.description)}</div>`).join("")}
     <table><tr><th>Asset</th><th class="num">Equilibrium</th><th class="num">With your views</th><th class="num">Tilt</th></tr>
     ${r.returns.map(x => `<tr><td>${x.symbol}</td><td class="num">${fmtSPct(x.prior)}</td>
       <td class="num">${fmtSPct(x.posterior)}</td>
@@ -1272,6 +1287,10 @@ PAGES.done = () => {
       ${plan.needs_hedge ? `<tr><td>${topTrades.length+1}</td><td>Add one hedge from the previous page (short / put / collar)</td></tr>` : ""}
       <tr><td>${topTrades.length + (plan.needs_hedge?2:1)}</td><td>Re-take the questionnaire quarterly — preferences drift</td></tr>
     </table>
+    ${(r.views && r.views.length) ? `<div class="note">Your views were logged to
+    <a class="link" href="#/journal">your record</a> at today's prices. When their
+    deadlines pass they get scored — and once enough have, Hone stops taking your
+    stated confidence at face value and starts using what your history earns.</div>` : ""}
     <div class="note">This is decision support, not investment advice. Execute through your broker;
     for options use live quotes, not the indicative costs shown here.</div>
     ${navRow("hedge", "Start over", null,
@@ -1594,6 +1613,221 @@ async function applyAssetClass() {
   const f = document.querySelector("footer");
   if (f) f.innerHTML = `${c.product} is decision support for crypto paper trading — not investment advice, ` +
     `and it never touches real money or a self-custody wallet. ${c.hedge_note}`;
+}
+
+/* ------------------------- the decision journal --------------------------- */
+/* The journal lives in the browser. The server never stores a prediction —
+   it resolves what it is sent against market prices and hands back a score.
+   Entries are written at the moment the user commits to an optimization, with
+   the server's own price, so the later verdict cannot be argued with. */
+const JOURNAL_KEY = () => "hone-journal:" + ASSET_CLASS;
+function journalLoad() {
+  try { return JSON.parse(localStorage.getItem(JOURNAL_KEY())) || []; }
+  catch { return []; }
+}
+function journalSave(entries) {
+  localStorage.setItem(JOURNAL_KEY(), JSON.stringify(entries));
+}
+/* Called after a successful optimize: the decision has been made, so it goes
+   on the record now rather than being reconstructed from memory later. */
+function journalRecord(responseViews) {
+  if (!responseViews || !responseViews.length) return;
+  const entries = journalLoad();
+  const today = new Date().toISOString().slice(0, 10);
+  responseViews.forEach((v) => {
+    if (!v.ticker || !(v.current_price > 0) || !(v.target_price > 0)) return;
+    entries.push({
+      id: `${v.ticker}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      ticker: v.ticker,
+      direction: v.target_price >= v.current_price ? "bullish" : "bearish",
+      entry_price: v.current_price,
+      target_price: v.target_price,
+      /* what the user SAID, never the calibrated value the optimizer used —
+         scoring the adjustment would feed the calibration its own output */
+      confidence: v.stated_confidence != null ? v.stated_confidence : v.confidence,
+      horizon_days: v.horizon_days,
+      thesis: v.description || "",
+      created_at: today,
+    });
+  });
+  journalSave(entries);
+}
+
+PAGES.journal = () => {
+  $id("page").innerHTML = `
+  <div class="card">
+    <h1>Your record</h1>
+    <p class="lead">Every view you act on is logged here the moment you commit to it —
+    the ticker, the price it was made at, your target, your deadline and how confident
+    you said you were. When the deadline passes it gets scored against the market.
+    Nothing about this is optional or retrospective: that's what makes it evidence
+    rather than memory.</p>
+    <p class="lead">Confidence is the one number in Hone you supply rather than
+    measure, and it's the lever that decides how far your portfolio tilts. Once
+    there's enough history, this page stops taking your word for it.</p>
+    <div id="j-error"></div>
+    <div id="j-out"><div class="spinner">Scoring your record…</div></div>
+    <div class="navrow"><button class="ghost" onclick="go('start')">&larr; Back to start</button><span></span></div>
+  </div>`;
+  loadJournal();
+};
+
+async function loadJournal(seed) {
+  $id("j-error").innerHTML = "";
+  try {
+    const body = Object.assign(marketBody(), {
+      predictions: journalLoad(),
+      seed_demo_history: !!seed,
+    });
+    const r = await api("/api/journal", body);
+    if (r.seeded) { journalSave(r.resolved.map(x => x.prediction)
+      .concat(r.open.map(x => x.prediction))); }
+    /* the fitted map is cached so the views page can send it with the next
+       optimize request without re-scoring the whole journal */
+    S.calibration = {
+      intercept: r.calibration.intercept, slope: r.calibration.slope,
+      actionable: r.calibration.actionable, n: r.calibration.n,
+    };
+    save();
+    renderJournal(r);
+  } catch (e) {
+    $id("j-out").innerHTML = "";
+    $id("j-error").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+function renderJournal(r) {
+  const c = r.calibration;
+  const entries = journalLoad();
+  if (!entries.length) {
+    $id("j-out").innerHTML = `
+      <div class="note">Your journal is empty. It fills itself: every time you
+      press <b>Optimize my portfolio</b> with a view attached, that view is
+      recorded here with the price it was made at.</div>
+      <button class="ghost" id="j-seed">Load an example record</button>`;
+    $id("j-seed").onclick = () => {
+      $id("j-out").innerHTML = `<div class="spinner">Building an example record…</div>`;
+      loadJournal(true);
+    };
+    return;
+  }
+
+  const pct = (x, dp) => (x == null ? "—" : fmtPct(x, dp == null ? 0 : dp));
+  const gap = (c.mean_confidence != null && c.base_rate != null)
+    ? c.mean_confidence - c.base_rate : null;
+
+  const tiles = c.n ? `
+    <div class="tiles">
+      <div class="tile"><div class="k">Resolved</div><div class="v">${c.n}</div>
+        <div class="s">${r.open.length} still open</div></div>
+      <div class="tile"><div class="k">You said</div><div class="v">${pct(c.mean_confidence)}</div>
+        <div class="s">average stated confidence</div></div>
+      <div class="tile"><div class="k">You were right</div><div class="v">${pct(c.base_rate)}</div>
+        <div class="s">of the time, on target</div></div>
+      <div class="tile"><div class="k">Brier score</div><div class="v">${c.brier == null ? "—" : c.brier.toFixed(3)}</div>
+        <div class="s">0 perfect · 0.25 = always saying 50%</div></div>
+    </div>` : "";
+
+  const bins = (c.bins || []).filter(b => b.n > 0);
+  const chart = bins.length ? `
+    <h2>Reliability — does 70% mean 70%?</h2>
+    <div class="chart">
+      <div class="legend"><span><i style="background:var(--series-2)"></i>you said</span>
+        <span><i style="background:var(--series-1)"></i>you were right</span></div>
+      ${bins.map(b => `
+        <div class="barrow">
+          <div class="sym">${pct(b.mean_confidence)}</div>
+          <div class="track2">
+            <div class="bar c" style="width:${Math.max(2, b.mean_confidence * 100)}%"></div>
+            <div class="bar t" style="width:${Math.max(2, b.hit_rate * 100)}%"></div>
+          </div>
+          <div class="val">${pct(b.hit_rate)} <span class="muted">(${b.n})</span></div>
+        </div>`).join("")}
+      <div class="muted" style="margin-top:6px">Bars of equal length mean calibrated:
+      you were right as often as you said you'd be. A short "right" bar under a long
+      "said" bar is overconfidence at that level.</div>
+    </div>` : "";
+
+  const decomp = c.n ? `
+    <h2>What the score is made of</h2>
+    <table>
+      <tr><th>Component</th><th class="num">Value</th><th>What it means</th></tr>
+      <tr><td>Reliability</td><td class="num">${c.reliability == null ? "—" : c.reliability.toFixed(3)}</td>
+        <td>How far your stated odds sit from reality. Lower is better; 0 is perfect.</td></tr>
+      <tr><td>Resolution</td><td class="num">${c.resolution == null ? "—" : c.resolution.toFixed(3)}</td>
+        <td>Whether your confident calls land more often than your tentative ones.
+        Higher is better — this is the part that can't be faked.</td></tr>
+      <tr><td>Uncertainty</td><td class="num">${c.uncertainty == null ? "—" : c.uncertainty.toFixed(3)}</td>
+        <td>How hard your questions were. Not your doing.</td></tr>
+      <tr><td>Direction only</td><td class="num">${pct(c.direction_hit_rate)}</td>
+        <td>How often the price simply moved the way you said, ignoring your target.
+        Being right on direction and greedy on magnitude is a fixable problem.</td></tr>
+    </table>` : "";
+
+  const useCal = S.useCalibration !== false;
+  const mapping = c.actionable ? `
+    <h2>What your confidence is worth</h2>
+    <p class="muted">Fitted from your record and shrunk toward taking you at your
+    word — with few predictions on file the correction stays small on purpose.</p>
+    <table>
+      <tr><th>You say</th><th class="num">Hone uses</th></tr>
+      ${(c.examples || []).map(e => `<tr><td>${pct(e.stated)}</td>
+        <td class="num ${e.used < e.stated ? "sell" : "buy"}">${pct(e.used)}</td></tr>`).join("")}
+    </table>
+    <label class="field" style="margin-top:12px">
+      <input type="checkbox" id="j-usecal" ${useCal ? "checked" : ""} style="width:auto;margin-right:8px">
+      Apply this correction to my future views
+    </label>` : `
+    <div class="note">Fewer than 5 resolved predictions, so nothing is being
+    adjusted yet. This is a record, not a correction — come back when a few
+    deadlines have passed.</div>`;
+
+  const openRows = r.open.length ? `
+    <h2>Open (${r.open.length})</h2>
+    <table>
+      <tr><th>Ticker</th><th class="num">Entry</th><th class="num">Now</th><th class="num">Target</th>
+        <th class="num">Progress</th><th class="num">Days left</th><th class="num">You said</th></tr>
+      ${r.open.map(o => `<tr>
+        <td>${esc(o.prediction.ticker)}</td>
+        <td class="num">${fmtMoney(o.prediction.entry_price)}</td>
+        <td class="num">${o.current_price == null ? "—" : fmtMoney(o.current_price)}</td>
+        <td class="num">${fmtMoney(o.prediction.target_price)}</td>
+        <td class="num ${o.progress > 0 ? "buy" : "sell"}">${o.progress == null ? "—" : fmtPct(o.progress, 0)}</td>
+        <td class="num">${Math.round(o.days_remaining)}</td>
+        <td class="num">${pct(o.prediction.confidence)}</td></tr>`).join("")}
+    </table>` : "";
+
+  const resolvedRows = r.resolved.length ? `
+    <h2>Scored (${r.resolved.length})</h2>
+    <table>
+      <tr><th>Ticker</th><th>Made</th><th class="num">Entry</th><th class="num">Target</th>
+        <th class="num">Ended</th><th class="num">You said</th><th>Result</th></tr>
+      ${r.resolved.map(x => `<tr>
+        <td>${esc(x.prediction.ticker)}</td>
+        <td>${esc(x.prediction.created_at)}</td>
+        <td class="num">${fmtMoney(x.prediction.entry_price)}</td>
+        <td class="num">${fmtMoney(x.prediction.target_price)}</td>
+        <td class="num">${fmtMoney(x.final_price)}</td>
+        <td class="num">${pct(x.prediction.confidence)}</td>
+        <td class="${x.target_hit ? "buy" : "sell"}">${x.target_hit ? "hit"
+          : (x.touched ? "touched, gave it back" : (x.direction_hit ? "right way, short of target" : "wrong way"))}</td>
+      </tr>`).join("")}
+    </table>` : "";
+
+  $id("j-out").innerHTML = `
+    ${c.n ? `<div class="note">${esc(c.summary)}</div>` : ""}
+    ${tiles}${chart}${mapping}${decomp}${openRows}${resolvedRows}
+    <div class="row" style="margin-top:18px">
+      <button class="ghost" id="j-clear" style="flex:0 0 auto">Clear my journal</button>
+      <span style="flex:1"></span>
+    </div>`;
+
+  const box = $id("j-usecal");
+  if (box) box.onchange = () => { S.useCalibration = box.checked; save(); };
+  $id("j-clear").onclick = () => {
+    if (!confirm("Delete every logged prediction? This cannot be undone.")) return;
+    journalSave([]); S.calibration = null; save(); loadJournal();
+  };
 }
 
 /* ================================== boot ================================== */

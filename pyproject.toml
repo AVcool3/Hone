@@ -21,6 +21,9 @@ dependencies = [
 
 [project.optional-dependencies]
 web = ["uvicorn[standard]>=0.29"]
+# Optional: the Claude backend for the Conviction Compiler. Without it the
+# deterministic parser in hone/llm/fallback.py handles compilation.
+llm = ["anthropic>=0.40"]
 dev = ["pytest>=8.0", "uvicorn[standard]>=0.29", "httpx>=0.27"]
 
 [project.scripts]

@@ -237,9 +237,40 @@ described above. To turn it on, follow [docs/SUPABASE.md](docs/SUPABASE.md)
 (create a project, run the provided SQL with Row-Level Security, and fill
 in `hone/web/static/config.js`).
 
+## The conviction loop
+
+Two features turn the pipeline above into something that improves with use.
+
+**The Conviction Compiler** (`hone/llm/`) takes a thesis in plain English —
+"I think Nvidia runs to $250 by the summer, fairly confident" — and compiles
+it into the structured view the optimizer needs: ticker, entry price, target,
+horizon, confidence. Claude does this when `ANTHROPIC_API_KEY` is set;
+otherwise a deterministic parser handles it with no network and no key. The
+result is a **proposal**: every field lands in an editable form with the
+guessed ones marked, and nothing reaches Black-Litterman until the user
+confirms it. The model is explicitly forbidden from inventing price targets —
+it translates intent, and the server supplies live prices.
+
+**The decision journal** (`hone/journal/`) logs every view at the moment it is
+acted on, at the server's price, and scores it when its horizon elapses. The
+accumulated record yields a Brier score, a reliability curve and a fitted map
+from what the user *says* to what their history justifies — which is then
+applied to future views, disclosed on screen, and switchable off. Confidence
+is the one number in Hone the user supplies rather than the system measures,
+and it is the lever controlling how far the portfolio tilts; this is how it
+stops being taken on trust. The method, the guards against over-correcting on
+thin evidence, and the known limitations are in
+[docs/CALIBRATION.md](docs/CALIBRATION.md).
+
+```bash
+pip install -e ".[llm]"        # optional: enables the Claude compiler
+export ANTHROPIC_API_KEY=...   # without it, the offline parser is used
+```
+
 ## More docs
 
 - [docs/VISION.md](docs/VISION.md) — what Hone is and why.
+- [docs/CALIBRATION.md](docs/CALIBRATION.md) — the decision journal, Brier scoring, and learned confidence.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.
 - [docs/CRYPTO_RESEARCH.md](docs/CRYPTO_RESEARCH.md) — Hone Crypto: literature, parameters, limitations.

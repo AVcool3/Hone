@@ -110,6 +110,59 @@ def _market_proxy(default: str = "SPY") -> str:
     return MARKET_PROXY if is_crypto() else default
 
 
+def _demo_journal(prices: pd.DataFrame, n: int = 14) -> list[s.PredictionIn]:
+    """A synthetic track record for demo mode.
+
+    An empty journal is a blank page that explains nothing, so demo mode
+    ships a history: predictions made at real dates in the demo price
+    series, with targets sized off each name's own volatility and stated
+    confidences drawn deliberately too high — the pattern the page exists to
+    detect.  The outcomes are whatever the demo prices actually did; they are
+    not rigged, so the resulting Brier score is a real score of a fake
+    forecaster.
+    """
+    import numpy as np
+
+    rng = np.random.default_rng(4)
+    symbols = [str(c) for c in prices.columns]
+    if not symbols or len(prices) < 200:
+        return []
+
+    out: list[s.PredictionIn] = []
+    horizons = [60.0, 90.0, 120.0, 180.0]
+    for i in range(n):
+        sym = symbols[i % len(symbols)]
+        series = prices[sym].dropna()
+        if len(series) < 200:
+            continue
+        horizon = float(rng.choice(horizons))
+        # Place the decision far enough back that the horizon has elapsed.
+        offset = int(rng.integers(int(horizon) + 5, min(len(series) - 1, 1200)))
+        made_at = series.index[-offset]
+        entry = float(series.iloc[-offset])
+        vol = float(series.pct_change().dropna().tail(120).std()) or 0.02
+        # Target a move of 0.3-1.3 sigma over the horizon — ambitious but
+        # reachable, so the demo record shows a forecaster who is somewhat
+        # overconfident rather than one who is hopeless.
+        move = vol * (horizon**0.5) * float(rng.uniform(0.3, 1.3))
+        bullish = bool(rng.random() < 0.75)  # retail views skew long
+        target = entry * (1 + move) if bullish else entry * (1 - move)
+        out.append(
+            s.PredictionIn(
+                id=f"demo-{i}",
+                ticker=sym,
+                direction="bullish" if bullish else "bearish",
+                entry_price=round(entry, 2),
+                target_price=round(target, 2),
+                confidence=float(rng.choice([0.55, 0.6, 0.7, 0.75, 0.8, 0.85])),
+                horizon_days=horizon,
+                thesis="Example entry (demo history)",
+                created_at=pd.Timestamp(made_at).date().isoformat(),
+            )
+        )
+    return out
+
+
 def _tier_info(gamma: float) -> s.TierInfo:
     t = gamma_to_tier(gamma)
     return s.TierInfo(
@@ -464,6 +517,29 @@ def create_app() -> FastAPI:
             proxy,
             req.lookback_days,
         )
+        # The user's own forecasting record, if they have one, rescales what
+        # their stated confidence is worth before Black-Litterman uses it.
+        # The map lives in the browser; the arithmetic lives here, so there
+        # is exactly one implementation of it.
+        cal_report = None
+        if req.calibration is not None and req.calibration.actionable:
+            from ..journal.calibration import CalibrationReport
+
+            cal_report = CalibrationReport(
+                n=req.calibration.n, brier=float("nan"), base_rate=float("nan"),
+                mean_confidence=float("nan"),
+                intercept=req.calibration.intercept, slope=req.calibration.slope,
+                reliability=float("nan"), resolution=float("nan"),
+                uncertainty=float("nan"), skill_vs_base_rate=float("nan"),
+                actionable=True,
+            )
+        adjustments: list[s.ConfidenceAdjustment] = []
+        # What the user actually typed, kept separate from what the optimizer
+        # used. The journal must record the stated number: scoring the
+        # adjusted one would feed the calibration its own output and discount
+        # the user a little further on every pass.
+        stated_by_ticker: dict[str, float] = {}
+
         views: list[View] = []
         for v in req.views:
             ticker = v.ticker.upper()
@@ -479,12 +555,24 @@ def create_app() -> FastAPI:
                         + ", ".join(map(str, prices.columns))
                     ),
                 )
+            confidence = v.confidence
+            stated_by_ticker[ticker] = v.confidence
+            if cal_report is not None:
+                from ..journal.calibration import apply_calibration
+
+                confidence = apply_calibration(v.confidence, cal_report)
+                if abs(confidence - v.confidence) > 1e-4:
+                    adjustments.append(
+                        s.ConfidenceAdjustment(
+                            ticker=ticker, stated=v.confidence, used=confidence
+                        )
+                    )
             views.append(
                 View(
                     ticker=ticker,
                     current_price=float(prices[ticker].dropna().iloc[-1]),
                     target_price=v.target_price,
-                    confidence=v.confidence,
+                    confidence=confidence,
                     horizon_days=v.horizon_days,
                 )
             )
@@ -590,8 +678,22 @@ def create_app() -> FastAPI:
             gamma=req.gamma,
             tier=_tier_info(req.gamma),
             demo=req.demo,
+            # The prices here are the server's, not the browser's guess —
+            # the decision journal records what the view was actually priced
+            # off, so a later score cannot be argued with.
             views=[
-                {"description": v.describe(), "expected_return": v.expected_return}
+                {
+                    "description": v.describe(),
+                    "expected_return": v.expected_return,
+                    "ticker": v.ticker,
+                    "current_price": v.current_price,
+                    "target_price": v.target_price,
+                    "confidence": v.confidence,
+                    "stated_confidence": stated_by_ticker.get(
+                        v.ticker, v.confidence
+                    ),
+                    "horizon_days": v.horizon_days,
+                }
                 for v in views
             ],
             returns=returns,
@@ -632,6 +734,7 @@ def create_app() -> FastAPI:
                     for x in plan.suggestions
                 ],
             ),
+            confidence_adjustments=adjustments or None,
         )
 
     # --------------------------------------------------------------- hedge
@@ -650,6 +753,129 @@ def create_app() -> FastAPI:
             )
         )
         return opt.hedge_plan
+
+    # ------------------------------------------------------------- journal
+    @app.post("/api/journal", response_model=s.JournalResponse)
+    def journal(req: s.JournalRequest) -> s.JournalResponse:
+        """Resolve matured predictions and score the user's calibration.
+
+        Stateless like everything else: the browser holds the journal and
+        sends it, the server resolves it against market data and returns the
+        verdict.  Nothing is stored here.
+        """
+        from ..journal.calibration import apply_calibration, fit_calibration
+        from ..journal.records import Prediction, resolve_all
+
+        symbols = sorted({p.ticker.upper() for p in req.predictions})
+        try:
+            prices, _ = _load_market(
+                req.demo, req.credentials, symbols, _market_proxy(),
+                req.lookback_days,
+            )
+        except (AlpacaError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+        seeded = False
+        incoming = list(req.predictions)
+        if req.demo and req.seed_demo_history and not incoming:
+            incoming = _demo_journal(prices)
+            seeded = True
+
+        preds: list[Prediction] = []
+        by_id: dict[int, s.PredictionIn] = {}
+        for raw in incoming:
+            try:
+                p = Prediction(
+                    ticker=raw.ticker,
+                    entry_price=raw.entry_price,
+                    target_price=raw.target_price,
+                    confidence=raw.confidence,
+                    horizon_days=raw.horizon_days,
+                    direction=raw.direction,
+                    thesis=raw.thesis,
+                    created_at=raw.created_at,
+                    id=raw.id,
+                    asset_class=asset_class(),
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            preds.append(p)
+            by_id[id(p)] = raw
+
+        resolved, still_open = resolve_all(preds, prices)
+
+        last = prices.ffill().iloc[-1] if not prices.empty else None
+        open_out: list[s.OpenPredictionOut] = []
+        for p in still_open:
+            now_price = None
+            if last is not None and p.ticker in last.index and pd.notna(last[p.ticker]):
+                now_price = float(last[p.ticker])
+            progress = None
+            if now_price is not None and p.target_price != p.entry_price:
+                progress = (now_price - p.entry_price) / (
+                    p.target_price - p.entry_price
+                )
+            open_out.append(
+                s.OpenPredictionOut(
+                    prediction=by_id[id(p)],
+                    days_remaining=max(
+                        0.0,
+                        (p.resolves_at - pd.Timestamp.now("UTC").to_pydatetime())
+                        .total_seconds()
+                        / 86400.0,
+                    ),
+                    current_price=now_price,
+                    progress=progress,
+                )
+            )
+
+        report = fit_calibration(
+            [r.confidence for r in resolved],
+            [float(r.target_hit) for r in resolved],
+            [float(r.direction_hit) for r in resolved],
+        )
+        examples = [
+            {"stated": lvl, "used": round(apply_calibration(lvl, report), 4)}
+            for lvl in (0.3, 0.5, 0.7, 0.9)
+        ]
+
+        def _f(x: float) -> float | None:
+            return None if x is None or x != x else float(x)
+
+        return s.JournalResponse(
+            resolved=[
+                s.ResolutionOut(
+                    prediction=by_id[id(r.prediction)],
+                    final_price=r.final_price,
+                    target_hit=r.target_hit,
+                    direction_hit=r.direction_hit,
+                    touched=r.touched,
+                    realized_return=r.realized_return,
+                    resolved_at=r.resolved_at.date().isoformat(),
+                    brier=r.brier,
+                )
+                for r in resolved
+            ],
+            open=open_out,
+            calibration=s.CalibrationOut(
+                n=report.n,
+                brier=_f(report.brier),
+                base_rate=_f(report.base_rate),
+                mean_confidence=_f(report.mean_confidence),
+                intercept=report.intercept,
+                slope=report.slope,
+                reliability=_f(report.reliability),
+                resolution=_f(report.resolution),
+                uncertainty=_f(report.uncertainty),
+                skill_vs_base_rate=_f(report.skill_vs_base_rate),
+                bins=[s.ReliabilityBin(**b) for b in report.bins],
+                actionable=report.actionable,
+                direction_hit_rate=_f(report.direction_hit_rate),
+                summary=report.summary,
+                examples=examples,
+            ),
+            seeded=seeded,
+        )
 
     # --------------------------------------------------- conviction compiler
     @app.post("/api/compile-view", response_model=s.CompileResponse)

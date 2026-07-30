@@ -158,6 +158,10 @@ class StressScenarioOut(BaseModel):
 
 
 class HedgePlanOut(BaseModel):
+    """The hedge plan. ``premium_is_negative`` matters: the Merton risk
+    budget assumes risk is being paid for, and says nothing useful about a
+    portfolio with a negative expected excess return."""
+
     gamma: float
     current_volatility: float
     target_volatility: float
@@ -167,6 +171,8 @@ class HedgePlanOut(BaseModel):
     tolerable_annual_loss_usd: float | None = None
     current_annual_loss_usd: float | None = None
     scenarios: list[StressScenarioOut] = []
+    expected_excess_return: float = 0.0
+    premium_is_negative: bool = False
 
 
 class OptimizeResponse(BaseModel):
@@ -249,6 +255,10 @@ class CompiledViewOut(BaseModel):
     needs_review: list[str] = []
     #: Live price at compile time, for the "vs. today" readout in the form.
     live_price: float | None = None
+    #: False when the symbol has no price history in the current universe.
+    #: The optimizer would reject the whole request, so the row says so
+    #: rather than letting the user discover it at the last step.
+    tradeable: bool = True
     #: Annualized return the view implies; recomputed client-side on edit.
     implied_annual_return: float | None = None
     #: Non-blocking warnings about extreme or contradictory inputs.

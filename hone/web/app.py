@@ -709,6 +709,8 @@ def create_app() -> FastAPI:
                 portfolio_value=plan.portfolio_value,
                 tolerable_annual_loss_usd=plan.tolerable_annual_loss_usd,
                 current_annual_loss_usd=plan.current_annual_loss_usd,
+                expected_excess_return=plan.expected_excess_return,
+                premium_is_negative=plan.premium_is_negative,
                 scenarios=[
                     s.StressScenarioOut(
                         name=x.name,
@@ -990,6 +992,10 @@ def create_app() -> FastAPI:
                     risks=v.risks,
                     needs_review=v.needs_review,
                     live_price=prices_map.get(v.ticker.upper()),
+                    tradeable=(
+                        not universe or v.ticker.upper() in
+                        {u.upper() for u in universe}
+                    ),
                     implied_annual_return=annual,
                     warnings=sanity_check(v),
                 )

@@ -168,6 +168,15 @@ class TestOfflineCompile:
         # defaults are still populated so the form is never empty
         assert v.horizon_days and v.confidence_pct
 
+    def test_unknown_symbol_note_is_accurate(self):
+        """The optimizer rejects unknown symbols, so the note must not
+        promise they will be picked up."""
+        res = compile_offline("NVDA to 250 in 6 months", ["AAPL", "TSLA"])
+        note = " ".join(res.notes)
+        assert "NVDA" in note
+        assert "swap or remove" in note
+        assert "will be added" not in note
+
     def test_no_ticker_gives_actionable_note(self):
         res = compile_offline("the market feels toppy")
         assert res.views == []

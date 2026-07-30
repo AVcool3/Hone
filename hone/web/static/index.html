@@ -213,6 +213,8 @@
           background: var(--accent-wash); color: var(--series-1); white-space: nowrap; }
   .flag.warn { background: rgba(208,145,59,0.14); color: #a86a12; }
   .field.guessed input { border-color: rgba(208,145,59,0.65); background: rgba(208,145,59,0.06); }
+  .field.bad input { border-color: rgba(208,59,59,0.7); background: rgba(208,59,59,0.06); }
+  .flag.bad { background: rgba(208,59,59,0.13); color: var(--critical); }
   .field.guessed span::after { content: " · check"; color: #a86a12; font-weight: 600; }
   .vmeta { font-size: 12.5px; color: var(--ink-2); margin: 0 0 10px; }
   .vmeta .imp { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink-1); }
@@ -1146,6 +1148,11 @@ PAGES.views = () => {
     const flags = [];
     if (v.direction === "bearish") flags.push(`<span class="flag warn">bearish</span>`);
     if (guessed.size) flags.push(`<span class="flag warn">${guessed.size} field${guessed.size > 1 ? "s" : ""} guessed</span>`);
+    /* A symbol with no price history here would make the optimizer reject
+       the whole request — losing every other view too. Say so on the row
+       rather than letting the user find out at the last step. */
+    const untradeable = v.tradeable === false;
+    if (untradeable) flags.push(`<span class="flag bad">not available here</span>`);
     div.innerHTML = `
       <div class="vhead">
         <span class="th">${v.thesis ? esc(v.thesis) : "Manual view"}</span>
@@ -1153,7 +1160,7 @@ PAGES.views = () => {
         <button class="ghost v-del" style="padding:5px 10px">✕</button>
       </div>
       <div class="row">
-        <label class="field"><span>Ticker</span><input type="text" class="v-ticker" list="symbol-options"
+        <label class="field${untradeable ? " bad" : ""}"><span>Ticker</span><input type="text" class="v-ticker" list="symbol-options"
           placeholder="${ex}" value="${esc(v.ticker || "")}"></label>
         <label class="field"><span>Price now $</span><input type="number" class="v-entry" step="0.01" min="0"
           value="${v.entry_price != null ? round2(v.entry_price) : ""}" placeholder="live"></label>
@@ -1165,6 +1172,10 @@ PAGES.views = () => {
         <label class="field${g("horizon_days")}"><span>Horizon (days)</span><input type="number" class="v-days" step="1" min="7"
           value="${v.horizon_days ? Math.round(v.horizon_days) : 365}"></label>
       </div>
+      ${untradeable ? `<p class="vwarn">No price history for
+        <b>${esc(v.ticker)}</b> in this ${S.demo === false ? "portfolio" : "demo universe"} —
+        swap it for one of: ${(RUNTIME.compileUniverse || []).map(esc).join(", ")},
+        or remove the row. Leaving it will stop the optimizer.</p>` : ""}
       <p class="vmeta"></p>
       ${(v.risks && v.risks.length) ? `<p class="vrisks"><b>What would make you wrong:</b> ${v.risks.map(esc).join(" · ")}</p>` : ""}
       <p class="vwarn"></p>`;
@@ -1193,6 +1204,7 @@ PAGES.views = () => {
     try {
       const res = await api("/api/compile-view", Object.assign(marketBody(), { text }));
       $id("c-engine").textContent = res.engine === "claude" ? "compiled by Claude" : "compiled locally";
+      RUNTIME.compileUniverse = res.universe || [];
       const notes = (res.notes || []).map(n => `<div class="note">${esc(n)}</div>`).join("");
       if (!res.views.length) {
         $id("c-out").innerHTML = notes || `<div class="note">Nothing to compile — name a symbol and where you think it goes.</div>`;
@@ -1373,7 +1385,17 @@ PAGES.hedge = () => {
     <h1>Hedging to your number</h1>
     <p class="lead">${plan.needs_hedge
       ? `Your rebalanced portfolio still runs hotter than your tier's risk budget. ${plan.suggestions.length === 1 ? "One way" : (plan.suggestions.length === 2 ? "Two ways" : plan.suggestions.length + " ways")} to bring it down:`
-      : "Good news — your rebalanced portfolio already sits within your tier's risk budget. No hedge needed; here's the downside picture anyway."}</p>
+      : (plan.premium_is_negative
+        ? "Your risk budget can't be computed here — see below."
+        : "Good news — your rebalanced portfolio already sits within your tier's risk budget. No hedge needed; here's the downside picture anyway.")}</p>
+    ${plan.premium_is_negative ? `<div class="error">
+      <b>This portfolio has a negative expected return</b> (${fmtSPct(plan.expected_excess_return)}
+      above cash). The risk budget behind every hedge on this page assumes risk is
+      being <i>paid</i> for — it answers "how much volatility is this premium worth?",
+      and with no premium the honest answer is "none of it", not "you're fine".
+      Hedging is the wrong tool here: go back and revisit the views driving this,
+      because the optimizer is telling you it can't find a portfolio it expects to
+      make money on.</div>` : ""}
     ${budget}
     ${scenarioBlock}
     ${plan.needs_hedge ? `<h2>Hedge options</h2>${cards}` : ""}
@@ -1393,7 +1415,9 @@ PAGES.done = () => {
     <div class="tiles">
       <div class="tile"><div class="k">Risk profile</div><div class="v">Tier ${r.tier.tier}/50</div><div class="s">γ = ${r.gamma.toFixed(2)} · ${r.tier.category}</div></div>
       <div class="tile"><div class="k">Portfolio after rebalance</div><div class="v">${fmtSPct(r.expected_return)}</div><div class="s">expected, at ${fmtPct(r.volatility)} volatility</div></div>
-      <div class="tile"><div class="k">Hedge</div><div class="v">${plan.needs_hedge ? "Recommended" : "Not needed"}</div><div class="s">${plan.needs_hedge ? "see hedge options" : "within your risk budget"}</div></div>
+      <div class="tile"><div class="k">Hedge</div><div class="v">${plan.needs_hedge ? "Recommended"
+        : (plan.premium_is_negative ? "N/A" : "Not needed")}</div><div class="s">${plan.needs_hedge ? "see hedge options"
+        : (plan.premium_is_negative ? "negative expected return — revisit your views" : "within your risk budget")}</div></div>
     </div>
     <h2>Action list</h2>
     <table><tr><th>#</th><th>Action</th></tr>
@@ -1406,6 +1430,11 @@ PAGES.done = () => {
     <a class="link" href="#/journal">your record</a> at today's prices. When their
     deadlines pass they get scored — and once enough have, Hone stops taking your
     stated confidence at face value and starts using what your history earns.</div>` : ""}
+    ${plan.premium_is_negative ? `<div class="error">Before you act on any of this:
+      the optimizer expects this portfolio to <b>lose</b> ${fmtPct(Math.abs(r.expected_return))}
+      a year. That is what your views imply, not a bug — but a plan you expect to lose
+      money on is a plan to reconsider, not to execute.
+      <a class="link" href="#/views">Revisit your views</a>.</div>` : ""}
     <div class="note">This is decision support, not investment advice. Execute through your broker;
     for options use live quotes, not the indicative costs shown here.</div>
     ${navRow("hedge", "Start over", null,

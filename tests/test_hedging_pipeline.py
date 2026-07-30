@@ -156,3 +156,64 @@ class TestPipeline:
         report = rebalance(prices, weights, gamma=3.0)
         assert report.black_litterman is None
         assert report.optimized.converged
+
+
+class TestNegativePremium:
+    """A portfolio expected to lose money must not be told it's fine.
+
+    The Merton budget alpha* = (mu - r) / (gamma * sigma^2) assumes risk is
+    being paid for. With a non-positive premium the rule degenerates to
+    "hold no risk", which used to surface as the cheerful and quite wrong
+    "already within your risk budget".
+    """
+
+    def test_flag_is_set_and_surfaced(self):
+        from fastapi.testclient import TestClient
+
+        from hone.web.app import create_app
+
+        client = TestClient(create_app())
+        body = client.post(
+            "/api/optimize",
+            json={
+                "gamma": 2.34,
+                "demo": True,
+                # a strongly bearish view: target far below the live price
+                "views": [{"ticker": "MSFT", "target_price": 210,
+                           "confidence": 0.6, "horizon_days": 152}],
+            },
+        ).json()
+        assert body["expected_return"] < 0
+        plan = body["hedge_plan"]
+        assert plan["premium_is_negative"] is True
+        assert plan["expected_excess_return"] < 0
+
+    def test_healthy_portfolio_is_not_flagged(self):
+        from fastapi.testclient import TestClient
+
+        from hone.web.app import create_app
+
+        client = TestClient(create_app())
+        plan = client.post(
+            "/api/hedge", json={"gamma": 6.0, "demo": True}
+        ).json()
+        assert plan["premium_is_negative"] is False
+        assert plan["needs_hedge"] is True
+
+    def test_page_explains_it_rather_than_congratulating(self):
+        from fastapi.testclient import TestClient
+
+        from hone.web.app import create_app
+
+        html = TestClient(create_app()).get("/").text
+        assert "premium_is_negative" in html
+        assert "negative expected return" in html
+
+    def test_summary_page_does_not_send_a_losing_plan_to_the_broker(self):
+        from fastapi.testclient import TestClient
+
+        from hone.web.app import create_app
+
+        html = TestClient(create_app()).get("/").text
+        assert "negative expected return — revisit your views" in html
+        assert "a plan you expect to lose" in html

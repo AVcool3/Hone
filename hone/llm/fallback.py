@@ -407,10 +407,15 @@ def compile_offline(
         known = {u.upper() for u in universe}
         unknown = [v.ticker for v in views if v.ticker not in known]
         if unknown:
+            # Not a soft warning: the optimizer rejects the whole request
+            # on an unknown symbol, so promising it "will be added" was
+            # simply false.
             notes.append(
-                "Not in the current universe: "
+                "No price history here for "
                 + ", ".join(unknown)
-                + ". They will be added if price history exists."
+                + " — swap or remove "
+                + ("those rows" if len(unknown) > 1 else "that row")
+                + " before optimizing."
             )
     for v in views:
         if v.target_price is None:

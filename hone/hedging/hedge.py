@@ -186,6 +186,15 @@ class HedgePlan:
     tolerable_annual_loss_usd: float | None = None  # ~95% VaR at target vol
     current_annual_loss_usd: float | None = None  # same measure, unhedged
     scenarios: list[StressResult] = field(default_factory=list)
+    #: The portfolio's expected excess return, and whether it is positive.
+    #: The Merton budget alpha* = (mu - r) / (gamma * sigma^2) is only
+    #: meaningful when there is a premium to be paid for bearing risk. With
+    #: a non-positive premium the rule degenerates to "hold no risk at all",
+    #: which arrives at the user as the cheerful and quite wrong message
+    #: that no hedge is needed. Flagged so the page can say what is
+    #: actually going on.
+    expected_excess_return: float = 0.0
+    premium_is_negative: bool = False
 
     def summary(self) -> str:
         lines = [
@@ -195,6 +204,14 @@ class HedgePlan:
             f"current volatility  : {self.current_volatility:.2%}",
             f"target volatility   : {self.target_volatility:.2%}",
         ]
+        if self.premium_is_negative:
+            lines.append(
+                f"Expected excess return is {self.expected_excess_return:+.2%} "
+                "— the risk budget does not apply to a portfolio you expect "
+                "to lose money on. Revisit the views driving it before "
+                "hedging anything."
+            )
+            return "\n".join(lines)
         if not self.needs_hedge:
             lines.append(
                 "Portfolio volatility is already within your risk budget — "
@@ -496,6 +513,8 @@ def suggest_hedges(
     port_mu = float(weights.reindex(mu.index).fillna(0.0) @ mu)
     target_vol = gamma_target_volatility(gamma, port_mu, port_vol, risk_free)
     needs_hedge = target_vol < port_vol * 0.999
+    premium = port_mu - risk_free
+    premium_is_negative = premium <= 0
 
     if hedge_instrument in sigma.index:
         w = weights.reindex(sigma.index).fillna(0.0).to_numpy()
@@ -573,4 +592,6 @@ def suggest_hedges(
         tolerable_annual_loss_usd=tolerable_loss,
         current_annual_loss_usd=current_loss,
         scenarios=stress,
+        expected_excess_return=premium,
+        premium_is_negative=premium_is_negative,
     )

@@ -216,8 +216,15 @@ python -m hone serve --asset-class crypto   # the crypto site
 HONE_ASSET_CLASS=crypto python -m hone serve   # same thing via env
 ```
 
-One codebase, two deployments: set `HONE_ASSET_CLASS=crypto` on a second
-service (see `render.yaml`) and point e.g. `crypto.studiohone.com` at it.
+**One deployment serves both.** The site has product tabs: `/` is the
+stocks product and `/crypto` is the crypto one — so `studiohone.com/crypto`
+works with no extra service, no second domain, and no DNS changes. The
+asset class resolves per request (URL path, or `?asset_class=crypto` on
+API calls), and each product keeps its own saved state in the browser.
+
+Setting `HONE_ASSET_CLASS=crypto` still pins an entire deployment to one
+product if you ever want them served separately.
+
 The research basis, every parameter difference, and the known limitations
 are documented in [docs/CRYPTO_RESEARCH.md](docs/CRYPTO_RESEARCH.md).
 

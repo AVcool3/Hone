@@ -30,6 +30,7 @@ from __future__ import annotations
 import base64
 import os
 import secrets
+from contextvars import ContextVar
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -57,15 +58,40 @@ DEMO_PORTFOLIO_VALUE = 25_000.0
 MARKET_PREMIUM = 0.05
 
 
+#: Asset class for the request currently being served. Set per request by
+#: middleware from the URL (path prefix or ?asset_class=), so a single
+#: deployment can serve both products — "/" for equities, "/crypto" for
+#: digital assets — rather than needing two services.
+_ASSET_CLASS_CTX: ContextVar[str | None] = ContextVar("asset_class", default=None)
+
+
+def _normalize_asset_class(value: str | None) -> str | None:
+    if not value:
+        return None
+    v = value.strip().lower()
+    if v in ("crypto", "cryptocurrency", "digital"):
+        return "crypto"
+    if v in ("equities", "equity", "stocks"):
+        return "equities"
+    return None
+
+
 def asset_class() -> str:
-    """'equities' (default) or 'crypto', from HONE_ASSET_CLASS.
+    """Asset class for this request: 'equities' (default) or 'crypto'.
+
+    Resolution order: the current request's context (path/query) first,
+    then the HONE_ASSET_CLASS environment variable (which pins a whole
+    deployment to one product), then equities.
 
     One codebase, two products: the quantitative protocol is identical
     and only the market data, calendar, proxy asset, stress scenarios and
-    copy differ. Deploy the same image twice with different env vars.
+    copy differ.
     """
-    v = os.environ.get("HONE_ASSET_CLASS", "equities").strip().lower()
-    return "crypto" if v in ("crypto", "cryptocurrency", "digital") else "equities"
+    return (
+        _ASSET_CLASS_CTX.get()
+        or _normalize_asset_class(os.environ.get("HONE_ASSET_CLASS"))
+        or "equities"
+    )
 
 
 def is_crypto() -> bool:
@@ -193,6 +219,18 @@ def _load_crypto_market(
 def create_app() -> FastAPI:
     app = FastAPI(title="Hone", version="0.2.0")
 
+    # ------------------------------------------- per-request asset class
+    @app.middleware("http")
+    async def resolve_asset_class(request: Request, call_next):
+        """Pick the product from the URL: /crypto/... or ?asset_class=."""
+        explicit = _normalize_asset_class(request.query_params.get("asset_class"))
+        by_path = "crypto" if request.url.path.rstrip("/").startswith("/crypto") else None
+        token = _ASSET_CLASS_CTX.set(explicit or by_path)
+        try:
+            return await call_next(request)
+        finally:
+            _ASSET_CLASS_CTX.reset(token)
+
     # ------------------------------------------------------- access gate
     @app.middleware("http")
     async def access_gate(request: Request, call_next):
@@ -215,6 +253,12 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------- static
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
+        return FileResponse(STATIC_DIR / "index.html")
+
+    @app.get("/crypto", include_in_schema=False)
+    @app.get("/crypto/", include_in_schema=False)
+    def index_crypto() -> FileResponse:
+        """Same single-page app, crypto product (see resolve_asset_class)."""
         return FileResponse(STATIC_DIR / "index.html")
 
     @app.get("/api/health", include_in_schema=False)

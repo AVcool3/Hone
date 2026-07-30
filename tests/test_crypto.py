@@ -182,6 +182,37 @@ def crypto_client(monkeypatch):
     return TestClient(create_app())
 
 
+class TestPathRouting:
+    """One deployment serves both products: / and /crypto."""
+
+    def test_crypto_path_serves_the_app(self):
+        c = TestClient(create_app())
+        assert c.get("/crypto").status_code == 200
+        assert c.get("/crypto/").status_code == 200
+        assert "disciplined position sizes" in c.get("/crypto").text
+
+    def test_asset_class_resolves_per_request(self, monkeypatch):
+        monkeypatch.delenv("HONE_ASSET_CLASS", raising=False)
+        c = TestClient(create_app())
+        assert c.get("/api/config").json()["asset_class"] == "equities"
+        assert c.get("/api/config?asset_class=crypto").json()["asset_class"] == "crypto"
+        # and the two do not leak into each other across requests
+        assert c.get("/api/config").json()["market_proxy"] == "SPY"
+
+    def test_endpoints_follow_the_query_param(self, monkeypatch):
+        monkeypatch.delenv("HONE_ASSET_CLASS", raising=False)
+        c = TestClient(create_app())
+        crypto = c.post("/api/portfolio?asset_class=crypto", json={"demo": True}).json()
+        equities = c.post("/api/portfolio", json={"demo": True}).json()
+        assert all("/" in p["symbol"] for p in crypto["positions"])
+        assert all("/" not in p["symbol"] for p in equities["positions"])
+
+    def test_env_var_still_pins_a_deployment(self, monkeypatch):
+        monkeypatch.setenv("HONE_ASSET_CLASS", "crypto")
+        c = TestClient(create_app())
+        assert c.get("/api/config").json()["asset_class"] == "crypto"
+
+
 class TestCryptoApi:
     def test_config_reports_crypto(self, crypto_client):
         cfg = crypto_client.get("/api/config").json()

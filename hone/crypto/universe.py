@@ -64,6 +64,23 @@ def normalize_symbol(symbol: str) -> str:
     return s
 
 
+#: Rough real-world price levels for the demo universe. Only the starting
+#: level is real — the path is synthetic.
+DEMO_BASE_PRICES = {
+    "BTC/USD": 95_000.0,
+    "ETH/USD": 3_400.0,
+    "SOL/USD": 190.0,
+    "LINK/USD": 22.0,
+    "AVAX/USD": 36.0,
+    "DOT/USD": 7.0,
+    "ADA/USD": 0.95,
+    "DOGE/USD": 0.34,
+    "LTC/USD": 105.0,
+    "UNI/USD": 13.0,
+    "AAVE/USD": 320.0,
+}
+
+
 def synthetic_crypto_universe(
     symbols: list[str] | None = None,
     n_days: int = 730,
@@ -97,8 +114,12 @@ def synthetic_crypto_universe(
     # Pin the sample mean to the intended drift so demo output is stable.
     rets = rets - rets.mean(axis=0, keepdims=True) + annual_mu / CRYPTO_PERIODS_PER_YEAR
 
+    # Start near real-world price levels: a demo that prices BTC at $1,000
+    # makes every target the user types look like a 100x, which drowns the
+    # Conviction Compiler's implied-return readout in noise.
+    base = np.array([DEMO_BASE_PRICES.get(sym, 100.0) for sym in symbols])
     prices = pd.DataFrame(
-        1000.0 * np.exp(np.cumsum(rets, axis=0)),
+        base * np.exp(np.cumsum(rets, axis=0)),
         columns=symbols,
         index=pd.date_range(end=pd.Timestamp.today().normalize(), periods=n_days, freq="D"),
     )

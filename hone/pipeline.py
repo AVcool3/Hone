@@ -165,6 +165,21 @@ def rebalance(
     )
 
 
+#: Rough real-world price levels for the demo universe, so demo output is
+#: dimensionally believable. Only the starting level — the path is synthetic.
+DEMO_BASE_PRICES = {
+    "AAPL": 225.0,
+    "MSFT": 425.0,
+    "SPY": 580.0,
+    "TSLA": 330.0,
+    "JNJ": 155.0,
+    "NVDA": 175.0,
+    "GOOGL": 190.0,
+    "AMZN": 205.0,
+    "META": 600.0,
+}
+
+
 def synthetic_universe(
     symbols: list[str] | None = None,
     n_days: int = 504,
@@ -185,8 +200,14 @@ def synthetic_universe(
     # on mean returns would otherwise dwarf the 4-16% targets and make
     # demo output erratic.
     rets = rets - rets.mean(axis=0, keepdims=True) + annual_mu / 252.0
+    # Start each series near its real-world order of magnitude. Nothing in
+    # the maths depends on the level — but a demo that prices TSLA at $100
+    # makes every realistic price target the user types look absurd, and
+    # the Conviction Compiler's implied-return readout is only meaningful
+    # against a believable base.
+    base = np.array([DEMO_BASE_PRICES.get(sym, 100.0) for sym in symbols])
     prices = pd.DataFrame(
-        100.0 * np.exp(np.cumsum(rets, axis=0)),
+        base * np.exp(np.cumsum(rets, axis=0)),
         columns=symbols,
         index=pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=n_days),
     )

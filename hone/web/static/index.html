@@ -186,6 +186,37 @@
   .error { background: rgba(208,59,59,0.09); border: 1px solid rgba(208,59,59,0.35);
            color: var(--critical); border-radius: 8px; padding: 10px 12px; margin: 12px 0; font-size: 14px; }
   .note  { background: var(--accent-wash); border-radius: 8px; padding: 11px 13px; margin: 12px 0; font-size: 13.5px; color: var(--ink-2); }
+
+  /* conviction compiler */
+  .compiler { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+              background: var(--page); margin-bottom: 18px; }
+  .compiler .hd { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .compiler .hd b { font-size: 14.5px; }
+  .compiler textarea {
+    width: 100%; margin-top: 8px; min-height: 76px; resize: vertical;
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 11px;
+    font: inherit; font-size: 14.5px; background: var(--page); color: var(--ink-1); }
+  .compiler textarea:focus { outline: none; border-color: var(--series-1); }
+  .compiler .ex { font-size: 12.5px; color: var(--ink-muted); margin-top: 7px; }
+  .compiler .ex button { background: none; border: none; padding: 0; margin-right: 10px;
+    font: inherit; font-size: 12.5px; color: var(--series-1); cursor: pointer;
+    text-decoration: underline; text-underline-offset: 2px; }
+  .engine-tag { font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--ink-muted); }
+  .view-row { border: 1px solid var(--border); border-radius: 10px; padding: 12px 13px 2px;
+              margin-bottom: 10px; background: var(--page); }
+  .view-row .vhead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+                     flex-wrap: wrap; }
+  .view-row .vhead .th { font-size: 13px; color: var(--ink-2); flex: 1; min-width: 180px; }
+  .flag { font-size: 11px; font-weight: 650; border-radius: 999px; padding: 2px 8px;
+          background: var(--accent-wash); color: var(--series-1); white-space: nowrap; }
+  .flag.warn { background: rgba(208,145,59,0.14); color: #a86a12; }
+  .field.guessed input { border-color: rgba(208,145,59,0.65); background: rgba(208,145,59,0.06); }
+  .field.guessed span::after { content: " · check"; color: #a86a12; font-weight: 600; }
+  .vmeta { font-size: 12.5px; color: var(--ink-2); margin: 0 0 10px; }
+  .vmeta .imp { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink-1); }
+  .vwarn { font-size: 12.5px; color: #a86a12; margin: 0 0 10px; }
+  .vrisks { font-size: 12.5px; color: var(--ink-muted); margin: -2px 0 10px; }
   .spinner { color: var(--ink-muted); font-size: 14px; margin: 12px 0; }
   details.settings summary { cursor: pointer; color: var(--ink-2); font-size: 14px; }
   footer { color: var(--ink-muted); font-size: 12.5px; margin-top: 26px; }
@@ -398,6 +429,11 @@ const fmtPct = (x, dp=1) => (x*100).toFixed(dp) + "%";
 const fmtSPct = (x, dp=1) => (x >= 0 ? "+" : "") + (x*100).toFixed(dp) + "%";
 const fmtMoney = (x, dp=2) => "$" + Math.abs(x).toLocaleString(undefined, {minimumFractionDigits: dp, maximumFractionDigits: dp});
 const fmtLoss = (x) => (x < 0 ? "−" : "") + fmtMoney(x, 0);
+const round2 = (x) => Math.round(x * 100) / 100;
+/* Anything that reaches innerHTML from the server or the user goes through
+   this first — compiled theses are user text echoed back into the page. */
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const STEPS = ["start", "quiz", "profile", "portfolio", "views", "optimize", "hedge", "done"];
 const STEP_LABELS = {start:"Start", quiz:"Questionnaire", profile:"Your profile", portfolio:"Portfolio",
@@ -405,13 +441,17 @@ const STEP_LABELS = {start:"Start", quiz:"Questionnaire", profile:"Your profile"
 /* standalone pages outside the linear flow (no progress bar) */
 const ASIDE_PAGES = ["tutorial", "analytics", "signup"];
 
-let S = load();
+/* STATE_KEY must be defined before the first load() call: it is a `const`,
+   so calling load() above this line throws a temporal-dead-zone
+   ReferenceError that load()'s own catch swallows — which silently returned
+   an empty state on every page load and wiped the user's progress. */
 const STATE_KEY = () => "hone-state:" +
   (location.pathname.replace(/\/+$/, "").endsWith("/crypto") ? "crypto" : "equities");
 function load() {
   try { return JSON.parse(localStorage.getItem(STATE_KEY())) || {}; }
   catch { return {}; }
 }
+let S = load();
 function save() { localStorage.setItem(STATE_KEY(), JSON.stringify(S)); }
 function resetAll() { S = {}; save(); RUNTIME = {}; go("start"); }
 
@@ -931,20 +971,45 @@ function renderPortfolio(data) {
 }
 
 /* ------------------------------- 5. views -------------------------------- */
+/* Two ways in: describe the thesis in plain English and let the Conviction
+   Compiler structure it, or fill the fields yourself. Either way the same
+   editable row is what reaches the optimizer — the compiler proposes, it
+   never commits. */
 PAGES.views = () => {
   const known = ((RUNTIME.portfolio && RUNTIME.portfolio.positions) || []).map(p => p.symbol);
+  const ex = (CFG && CFG.copy && CFG.copy.example_ticker) || "TSLA";
+  const samples = ASSET_CLASS === "crypto"
+    ? [`I think bitcoin runs to $150k by year end, pretty confident`,
+       `ETH to 6000 in 6 months, maybe 60% sure`]
+    : [`I think ${ex} runs to $250 by year end, I'm about 65% confident`,
+       `Apple hits 300 in 6 months — high conviction`];
+
   $id("page").innerHTML = `<div class="card">
     <h1>Your views</h1>
-    <p class="lead">Have conviction about a stock? Name it, give a target price,
-    say how confident you are, and the optimizer will blend it against market
-    equilibrium — trusted exactly as much as you trust it. No views is fine
-    too: you'll get a pure risk-based rebalance.</p>
+    <p class="lead">Have conviction about a ${ASSET_CLASS === "crypto" ? "coin" : "stock"}?
+    Describe it the way you'd say it out loud. We'll turn it into a target price,
+    a timeframe and a confidence level — then you check every number before it
+    counts. No views is fine too: you'll get a pure risk-based rebalance.</p>
+
+    <div class="compiler">
+      <div class="hd"><b>Describe your thesis</b><span class="engine-tag" id="c-engine"></span></div>
+      <textarea id="c-text" placeholder="${samples[0]}"></textarea>
+      <div class="ex">Try:
+        ${samples.map((s, i) => `<button class="c-sample" data-i="${i}">${s}</button>`).join("")}
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="c-run" style="flex:0 0 auto;min-width:170px">Compile my thesis</button>
+        <span style="flex:1"></span>
+      </div>
+      <div id="c-out"></div>
+    </div>
+
     ${known.length ? `<div class="muted" style="margin-bottom:8px">Available in this portfolio: ${known.join(", ")}</div>` : ""}
     <datalist id="symbol-options"></datalist>
     <div id="views-list"></div>
-    <button class="ghost" id="add-view" style="margin-top:8px">+ Add a view</button>
+    <button class="ghost" id="add-view" style="margin-top:8px">+ Add a view manually</button>
     <div class="row" style="margin-top:16px">
-      <label class="field" style="max-width:220px"><span>Max weight per stock</span>
+      <label class="field" style="max-width:220px"><span>Max weight per ${ASSET_CLASS === "crypto" ? "coin" : "stock"}</span>
         <input type="number" id="opt-maxw" step="0.05" min="0.05" max="1" value="${S.maxWeight ?? 0.35}"></label>
       <label class="field" style="max-width:220px"><span>Your γ</span>
         <input type="number" id="opt-gamma" step="0.05" value="${(S.gamma ?? 1.2).toFixed(2)}"></label>
@@ -952,24 +1017,94 @@ PAGES.views = () => {
     <div id="v-error"></div>
     ${navRow("portfolio", "Optimize my portfolio →")}
   </div>`;
+
   const dl = $id("symbol-options");
   if (dl && known.length) dl.innerHTML = known.map(sym => `<option value="${sym}">`).join("");
   const list = $id("views-list");
-  const addRow = (v={}) => {
+
+  /* ---- one editable view row ------------------------------------------ */
+  const addRow = (v = {}) => {
+    const guessed = new Set(v.needs_review || []);
+    const g = (name) => guessed.has(name) ? " guessed" : "";
     const div = document.createElement("div");
-    div.className = "row view-row";
+    div.className = "view-row";
+    const flags = [];
+    if (v.direction === "bearish") flags.push(`<span class="flag warn">bearish</span>`);
+    if (guessed.size) flags.push(`<span class="flag warn">${guessed.size} field${guessed.size > 1 ? "s" : ""} guessed</span>`);
     div.innerHTML = `
-      <label class="field"><span>Ticker</span><input type="text" class="v-ticker" list="symbol-options"
-        placeholder="${(CFG && CFG.copy && CFG.copy.example_ticker) || "TSLA"}" value="${v.ticker||""}"></label>
-      <label class="field"><span>Target price $</span><input type="number" class="v-target" step="0.01" min="0" value="${v.target_price||""}"></label>
-      <label class="field"><span>Confidence %</span><input type="number" class="v-conf" step="5" min="5" max="100" value="${v.confidence != null ? Math.round(v.confidence*100) : 50}"></label>
-      <label class="field"><span>Horizon (days)</span><input type="number" class="v-days" step="1" min="7" value="${v.horizon_days||365}"></label>
-      <button class="ghost v-del">✕</button>`;
+      <div class="vhead">
+        <span class="th">${v.thesis ? esc(v.thesis) : "Manual view"}</span>
+        ${flags.join(" ")}
+        <button class="ghost v-del" style="padding:5px 10px">✕</button>
+      </div>
+      <div class="row">
+        <label class="field"><span>Ticker</span><input type="text" class="v-ticker" list="symbol-options"
+          placeholder="${ex}" value="${esc(v.ticker || "")}"></label>
+        <label class="field"><span>Price now $</span><input type="number" class="v-entry" step="0.01" min="0"
+          value="${v.entry_price != null ? round2(v.entry_price) : ""}" placeholder="live"></label>
+        <label class="field${g("target_price")}"><span>Target price $</span><input type="number" class="v-target" step="0.01" min="0"
+          value="${v.target_price != null ? round2(v.target_price) : ""}"></label>
+        <label class="field${g("confidence_pct")}"><span>Confidence %</span><input type="number" class="v-conf" step="5" min="5" max="100"
+          value="${v.confidence_pct != null ? Math.round(v.confidence_pct)
+                  : (v.confidence != null ? Math.round(v.confidence * 100) : 50)}"></label>
+        <label class="field${g("horizon_days")}"><span>Horizon (days)</span><input type="number" class="v-days" step="1" min="7"
+          value="${v.horizon_days ? Math.round(v.horizon_days) : 365}"></label>
+      </div>
+      <p class="vmeta"></p>
+      ${(v.risks && v.risks.length) ? `<p class="vrisks"><b>What would make you wrong:</b> ${v.risks.map(esc).join(" · ")}</p>` : ""}
+      <p class="vwarn"></p>`;
     div.querySelector(".v-del").onclick = () => div.remove();
+    /* the implied return is recomputed on every keystroke: the user should
+       see what their edit actually asks the optimizer to believe */
+    const refresh = () => updateRowMeta(div);
+    div.querySelectorAll("input").forEach(i => i.addEventListener("input", refresh));
     list.appendChild(div);
+    refresh();
+    return div;
   };
+
   (S.views && S.views.length ? S.views : [{}]).forEach(addRow);
   $id("add-view").onclick = () => addRow();
+
+  /* ---- compiler --------------------------------------------------------- */
+  document.querySelectorAll(".c-sample").forEach(b => {
+    b.onclick = () => { $id("c-text").value = samples[+b.dataset.i]; $id("c-text").focus(); };
+  });
+  $id("c-run").onclick = async () => {
+    const text = $id("c-text").value.trim();
+    if (!text) { $id("c-text").focus(); return; }
+    $id("c-run").disabled = true;
+    $id("c-out").innerHTML = `<div class="spinner">Reading your thesis…</div>`;
+    try {
+      const res = await api("/api/compile-view", Object.assign(marketBody(), { text }));
+      $id("c-engine").textContent = res.engine === "claude" ? "compiled by Claude" : "compiled locally";
+      const notes = (res.notes || []).map(n => `<div class="note">${esc(n)}</div>`).join("");
+      if (!res.views.length) {
+        $id("c-out").innerHTML = notes || `<div class="note">Nothing to compile — name a symbol and where you think it goes.</div>`;
+      } else {
+        /* drop the placeholder empty row, then add one row per conviction */
+        [...document.querySelectorAll(".view-row")].forEach(r => {
+          if (!r.querySelector(".v-ticker").value.trim()) r.remove();
+        });
+        res.views.forEach(v => {
+          const row = addRow(v);
+          if (v.warnings && v.warnings.length) {
+            row.querySelector(".vwarn").innerHTML = v.warnings.map(esc).join("<br>");
+          }
+        });
+        $id("c-out").innerHTML = notes + `<div class="note">Compiled ${res.views.length}
+          view${res.views.length > 1 ? "s" : ""} below. <b>Every field is editable</b> —
+          nothing reaches the optimizer until you press Optimize.</div>`;
+        $id("c-text").value = "";
+        list.lastChild.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    } catch (e) {
+      $id("c-out").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+    }
+    $id("c-run").disabled = false;
+  };
+
+  /* ---- submit ----------------------------------------------------------- */
   $id("next-btn").onclick = async () => {
     S.views = [...document.querySelectorAll(".view-row")].map(r => ({
       ticker: r.querySelector(".v-ticker").value.trim().toUpperCase(),
@@ -990,11 +1125,29 @@ PAGES.views = () => {
       RUNTIME.optimize = await api("/api/optimize", body);
       go("optimize");
     } catch (e) {
-      $id("v-error").innerHTML = `<div class="error">${e.message}</div>`;
+      $id("v-error").innerHTML = `<div class="error">${esc(e.message)}</div>`;
       $id("next-btn").disabled = false;
     }
   };
 };
+
+/* Live readout under an edited view: what the numbers now imply. */
+function updateRowMeta(row) {
+  const num = (sel) => parseFloat(row.querySelector(sel).value);
+  const entry = num(".v-entry"), target = num(".v-target"), days = num(".v-days");
+  const meta = row.querySelector(".vmeta");
+  if (!(entry > 0) || !(target > 0) || !(days > 0)) {
+    meta.innerHTML = target > 0 ? "" :
+      `<span class="muted">Add a target price to see what this view implies.</span>`;
+    return;
+  }
+  const total = target / entry - 1;
+  const annual = Math.pow(1 + total, 365 / days) - 1;
+  const cls = total >= 0 ? "buy" : "sell";
+  meta.innerHTML = `You're saying <span class="imp ${cls}">${fmtPct(total)}</span>
+    over ${Math.round(days)} days — <span class="imp">${fmtPct(annual)}</span> annualized.
+    ${Math.abs(annual) > 1 ? `<span class="flag warn">extreme</span>` : ""}`;
+}
 
 /* ------------------------------ 6. optimize ------------------------------ */
 PAGES.optimize = () => {

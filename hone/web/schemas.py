@@ -213,3 +213,46 @@ class BacktestResponse(BaseModel):
     rebalances: int
     headline: str
     strategies: list[StrategyOut]
+
+
+# -------------------------------------------------- conviction compiler (LLM)
+class CompileRequest(BaseModel):
+    """Plain-English thesis to compile into structured, editable views."""
+
+    text: str = Field(description="What the user believes, in their own words")
+    demo: bool = False
+    credentials: AlpacaCredentials | None = None
+    #: Attach live prices as the entry price for each compiled view.
+    with_prices: bool = True
+    #: Force the deterministic parser even when a Claude key is configured.
+    offline: bool = False
+    lookback_days: int = 30
+
+
+class CompiledViewOut(BaseModel):
+    ticker: str
+    direction: str = "bullish"
+    entry_price: float | None = None
+    target_price: float | None = None
+    horizon_days: float | None = None
+    confidence_pct: float | None = None
+    thesis: str = ""
+    catalysts: list[str] = []
+    risks: list[str] = []
+    #: Fields the compiler guessed rather than read — the UI highlights these.
+    needs_review: list[str] = []
+    #: Live price at compile time, for the "vs. today" readout in the form.
+    live_price: float | None = None
+    #: Annualized return the view implies; recomputed client-side on edit.
+    implied_annual_return: float | None = None
+    #: Non-blocking warnings about extreme or contradictory inputs.
+    warnings: list[str] = []
+
+
+class CompileResponse(BaseModel):
+    #: "claude" when the LLM compiled it, "fallback" for the offline parser.
+    engine: str
+    views: list[CompiledViewOut]
+    notes: list[str] = []
+    #: Symbols the user can name, so the UI can offer a picker on failure.
+    universe: list[str] = []

@@ -651,6 +651,76 @@ def create_app() -> FastAPI:
         )
         return opt.hedge_plan
 
+    # --------------------------------------------------- conviction compiler
+    @app.post("/api/compile-view", response_model=s.CompileResponse)
+    def compile_view(req: s.CompileRequest) -> s.CompileResponse:
+        """Turn a plain-English thesis into structured, editable views.
+
+        The result is a *proposal*: the UI renders every field as an input and
+        the user confirms or rewrites it before /api/optimize sees anything.
+        Nothing here can move a portfolio on its own.
+        """
+        from ..llm.compiler import ConvictionCompiler, sanity_check
+
+        universe: list[str] = []
+        prices_map: dict[str, float] = {}
+        if req.with_prices:
+            try:
+                prices, _ = _load_market(
+                    req.demo, req.credentials, [], _market_proxy(),
+                    max(req.lookback_days, 10),
+                )
+                universe = [str(c) for c in prices.columns]
+                last = prices.ffill().iloc[-1]
+                prices_map = {
+                    str(sym): float(val)
+                    for sym, val in last.items()
+                    if pd.notna(val) and val > 0
+                }
+            except (HTTPException, AlpacaError, ValueError):
+                # Compiling must work even with no market connection — the
+                # user can type the entry price themselves.
+                universe, prices_map = [], {}
+
+        compiler = ConvictionCompiler(prefer_llm=not req.offline)
+        result = compiler.compile(
+            req.text,
+            universe or None,
+            asset_class=asset_class(),
+            prices=prices_map or None,
+        )
+
+        out: list[s.CompiledViewOut] = []
+        for v in result.views:
+            implied = v.implied_return()
+            annual = None
+            if implied is not None and v.horizon_days:
+                years = max(v.horizon_days / 365.0, 1e-6)
+                annual = float((1.0 + implied) ** (1.0 / years) - 1.0)
+            out.append(
+                s.CompiledViewOut(
+                    ticker=v.ticker,
+                    direction=v.direction,
+                    entry_price=v.entry_price,
+                    target_price=v.target_price,
+                    horizon_days=v.horizon_days,
+                    confidence_pct=v.confidence_pct,
+                    thesis=v.thesis,
+                    catalysts=v.catalysts,
+                    risks=v.risks,
+                    needs_review=v.needs_review,
+                    live_price=prices_map.get(v.ticker.upper()),
+                    implied_annual_return=annual,
+                    warnings=sanity_check(v),
+                )
+            )
+        return s.CompileResponse(
+            engine=result.engine,
+            views=out,
+            notes=result.notes,
+            universe=universe,
+        )
+
     # ------------------------------------------------------------- backtest
     @app.post("/api/backtest", response_model=s.BacktestResponse)
     def backtest(req: s.BacktestRequest) -> s.BacktestResponse:

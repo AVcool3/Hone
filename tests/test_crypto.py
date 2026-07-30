@@ -240,7 +240,12 @@ class TestCryptoApi:
         res = crypto_client.post(
             "/api/optimize",
             json={"gamma": 8.0, "demo": True,
-                  "views": [{"ticker": "SOL/USD", "target_price": 3000,
+                  # A believable target against the demo's ~$190 SOL start.
+                  # A wildly inflated one drives the portfolio's expected
+                  # return so high that the Merton budget alpha* exceeds 1
+                  # and no hedge is called for — which is correct behaviour,
+                  # but not what this test is about.
+                  "views": [{"ticker": "SOL/USD", "target_price": 300,
                              "confidence": 0.6}]},
         )
         assert res.status_code == 200

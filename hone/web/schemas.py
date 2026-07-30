@@ -415,3 +415,43 @@ class DoseResponse(BaseModel):
     finished: bool
     question: DoseQuestionOut | None
     state: DoseStateOut
+
+
+# ------------------------------------------------------------ CVaR / tails
+class TailRow(BaseModel):
+    portfolio: str
+    label: str
+    mean: float
+    volatility: float
+    var: float
+    cvar: float
+    worst: float
+    skew: float
+
+
+class CVaRRequest(BaseModel):
+    gamma: float
+    demo: bool = False
+    credentials: AlpacaCredentials | None = None
+    lookback_days: int = 756
+    max_weight: float | None = 0.35
+    beta: float = Field(default=0.95, ge=0.5, lt=1.0)
+    #: Scenario length in periods. 21 ~ a month, which is how people think
+    #: about "a bad month" — and a legible unit for the dollar framing.
+    horizon: int = Field(default=21, ge=1, le=252)
+    portfolio_value: float | None = None
+
+
+class CVaRResponse(BaseModel):
+    beta: float
+    horizon: int
+    n_scenarios: int
+    tail_scenarios: int
+    #: Minimum-CVaR weights (risk-first) and the gamma-matched mean-CVaR ones.
+    min_cvar_weights: list[WeightRow]
+    gamma_cvar_weights: list[WeightRow]
+    comparison: list[TailRow]
+    portfolio_value: float | None = None
+    #: The headline: dollars of tail loss the risk-first book avoids.
+    cvar_saved_usd: float | None = None
+    summary: str

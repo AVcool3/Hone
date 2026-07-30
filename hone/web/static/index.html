@@ -442,7 +442,7 @@ const STEPS = ["start", "quiz", "profile", "portfolio", "views", "optimize", "he
 const STEP_LABELS = {start:"Start", quiz:"Questionnaire", profile:"Your profile", portfolio:"Portfolio",
                      views:"Your views", optimize:"Rebalance", hedge:"Hedge", done:"Summary"};
 /* standalone pages outside the linear flow (no progress bar) */
-const ASIDE_PAGES = ["tutorial", "analytics", "signup", "journal"];
+const ASIDE_PAGES = ["tutorial", "analytics", "signup", "journal", "tails"];
 
 /* STATE_KEY must be defined before the first load() call: it is a `const`,
    so calling load() above this line throws a temporal-dead-zone
@@ -1399,6 +1399,11 @@ PAGES.hedge = () => {
     ${budget}
     ${scenarioBlock}
     ${plan.needs_hedge ? `<h2>Hedge options</h2>${cards}` : ""}
+    <div class="note">Everything above measures risk as volatility. For the
+    blunter question — <i>when it goes badly, how badly?</i> —
+    <a class="link" href="#/tails">see your tail</a>: the average of your worst
+    5% of months, read straight off your history instead of assumed from a
+    covariance matrix.</div>
     ${navRow("optimize", "Finish →")}
   </div>`;
   $id("next-btn").onclick = () => go("done");
@@ -1757,6 +1762,132 @@ async function applyAssetClass() {
   const f = document.querySelector("footer");
   if (f) f.innerHTML = `${c.product} is decision support for crypto paper trading — not investment advice, ` +
     `and it never touches real money or a self-custody wallet. ${c.hedge_note}`;
+}
+
+/* ------------------------------ tail risk -------------------------------- */
+/* Variance and CVaR disagree exactly when returns are not normal, which is
+   most of the time and nearly always in crypto. This page shows both answers
+   rather than picking one — the disagreement is the finding. */
+PAGES.tails = () => {
+  const coin = ASSET_CLASS === "crypto";
+  $id("page").innerHTML = `
+  <div class="card">
+    <h1>The tail your volatility number hides</h1>
+    <p class="lead">Volatility treats a good month and a bad month as the same
+    thing, and it assumes ${coin ? "crypto returns are shaped like a bell curve — they are emphatically not"
+      : "returns are shaped like a bell curve"}. This page asks a blunter question:
+    <b>when it goes badly, how badly?</b></p>
+    <p class="lead"><b>CVaR</b> is the average loss across the worst 5% of months
+    in your history — not the threshold you cross, the average of everything past
+    it. Two portfolios with the same volatility can have very different answers,
+    and the one variance prefers is often not the one you would.</p>
+    <div class="row" style="max-width:460px">
+      <label class="field"><span>Your γ</span>
+        <input type="number" id="cv-gamma" step="0.1" value="${(S.gamma ?? 2.0).toFixed(2)}"></label>
+      <label class="field"><span>Worst … of months</span>
+        <select id="cv-beta">
+          <option value="0.95" selected>5%  (1 month in 20)</option>
+          <option value="0.90">10% (1 month in 10)</option>
+          <option value="0.99">1%  (needs long history)</option>
+        </select></label>
+      <button class="primary" id="cv-run" style="align-self:flex-end;margin-bottom:10px">Show my tail</button>
+    </div>
+    <div id="cv-error"></div>
+    <div id="cv-out"></div>
+    <div class="navrow"><button class="ghost" onclick="go('start')">&larr; Back to start</button><span></span></div>
+  </div>`;
+  $id("cv-run").onclick = runTails;
+  runTails();
+};
+
+async function runTails() {
+  $id("cv-error").innerHTML = "";
+  $id("cv-out").innerHTML = `<div class="spinner">Reading your history's worst months…</div>`;
+  try {
+    const body = Object.assign(marketBody(), {
+      gamma: parseFloat($id("cv-gamma").value) || 2.0,
+      beta: parseFloat($id("cv-beta").value),
+      max_weight: S.maxWeight ?? 0.35,
+      portfolio_value: S.portfolioValue ?? null,
+    });
+    renderTails(await api("/api/cvar", body));
+  } catch (e) {
+    $id("cv-out").innerHTML = "";
+    $id("cv-error").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+function renderTails(r) {
+  const by = {};
+  r.comparison.forEach(x => { by[x.portfolio] = x; });
+  const worstCvar = Math.max(...r.comparison.map(x => x.cvar));
+  const value = r.portfolio_value;
+
+  /* The headline is the comparison variance cannot make: same-ish
+     volatility, different tail. */
+  const rows = r.comparison.map(x => {
+    const isBest = x.cvar === Math.min(...r.comparison.map(y => y.cvar));
+    return `<tr>
+      <td>${esc(x.label)}${isBest ? ` <span class="flag">thinnest tail</span>` : ""}</td>
+      <td class="num">${fmtSPct(x.mean)}</td>
+      <td class="num">${fmtPct(x.volatility)}</td>
+      <td class="num">${fmtPct(x.var)}</td>
+      <td class="num"><b>${fmtPct(x.cvar)}</b>${value ? `<br><span class="muted">${fmtMoney(x.cvar*value,0)}</span>` : ""}</td>
+      <td class="num">${fmtPct(x.worst)}</td>
+    </tr>
+    <tr><td colspan="6" style="padding-top:0;border-bottom:1px solid var(--grid)">
+      <div class="track2" style="height:9px">
+        <div class="bar single" style="width:${Math.max(2,(x.cvar/worstCvar)*100)}%;
+          background:${isBest ? "var(--good)" : "var(--critical)"};opacity:0.75"></div>
+      </div></td></tr>`;
+  }).join("");
+
+  const savings = (r.cvar_saved_usd != null && r.cvar_saved_usd > 0)
+    ? `<div class="note">Rebuilding around the tail instead of the variance would
+       have cut the average bad month by <b>${fmtMoney(r.cvar_saved_usd, 0)}</b>
+       on ${fmtMoney(value, 0)}. That is the number this page exists to show —
+       and it costs expected return, which the table above prices.</div>` : "";
+
+  /* Where the two risk measures actually disagree is the point. */
+  const mv = by.current, mc = by.min_cvar;
+  const disagreement = (mv && mc)
+    ? `<div class="note">Note the two middle columns. Volatility says
+       ${fmtPct(mv.volatility)} → ${fmtPct(mc.volatility)}; the tail says
+       ${fmtPct(mv.cvar)} → ${fmtPct(mc.cvar)}. When those two moves disagree in
+       size, the difference is skew and fat tails — the part of your risk a
+       covariance matrix cannot represent.</div>` : "";
+
+  $id("cv-out").innerHTML = `
+    <div class="note">${esc(r.summary)}</div>
+    ${savings}
+    <table>
+      <tr><th>Portfolio</th><th class="num">Return</th><th class="num">Volatility</th>
+        <th class="num">VaR</th><th class="num">CVaR</th><th class="num">Worst ever</th></tr>
+      ${rows}
+    </table>
+    <div class="muted" style="margin-top:8px">Per ${r.horizon === 1 ? "day" : "month"},
+      over ${r.n_scenarios} overlapping windows; the tail averages
+      ${r.tail_scenarios} of them. Overlapping windows share data, so treat the
+      tail as ${r.tail_scenarios < 25 ? "very thin" : "thin"} evidence — it is
+      history, not a forecast, and the worst month in your data is not the worst
+      month there is.</div>
+    ${disagreement}
+    <h2>The risk-first portfolio</h2>
+    <p class="muted">Built by minimizing the tail alone — expected returns are not
+    used at all. That sounds like a limitation and is closer to a feature: return
+    forecasts are the least reliable input in this whole pipeline, and a portfolio
+    that never sees them cannot be wrecked by getting them wrong.</p>
+    <table>
+      <tr><th>Symbol</th><th class="num">Now</th><th class="num">Risk-first</th><th class="num">At your γ</th></tr>
+      ${r.min_cvar_weights.map((w, i) => `<tr>
+        <td>${esc(w.symbol)}</td>
+        <td class="num">${fmtPct(w.current)}</td>
+        <td class="num">${fmtPct(w.target)}</td>
+        <td class="num">${fmtPct(r.gamma_cvar_weights[i].target)}</td></tr>`).join("")}
+    </table>
+    <div class="note">This is a second opinion, not a replacement. The main flow
+    optimizes variance because that is what Black-Litterman blends your views
+    into; this page tells you what that choice costs you in the tail.</div>`;
 }
 
 /* ------------------------- the decision journal --------------------------- */

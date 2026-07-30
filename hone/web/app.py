@@ -756,6 +756,161 @@ def create_app() -> FastAPI:
         )
         return opt.hedge_plan
 
+    # ----------------------------------------------------------- tail risk
+    @app.post("/api/cvar", response_model=s.CVaRResponse)
+    def cvar(req: s.CVaRRequest) -> s.CVaRResponse:
+        """Tail-risk view of the portfolio: CVaR-optimal weights and why.
+
+        Variance and CVaR disagree exactly when the return distribution is
+        not normal, which is most of the time and nearly all of the time
+        in crypto.  This endpoint shows both answers side by side rather
+        than picking one, because the disagreement is the information.
+        """
+        from ..optimization.cvar import (
+            cvar_gamma_weights,
+            cvar_of_weights,
+            historical_scenarios,
+            min_cvar_weights,
+            tail_comparison,
+        )
+
+        prices, weights = _load_market(
+            req.demo, req.credentials, [], _market_proxy(), req.lookback_days
+        )
+        try:
+            scenarios = historical_scenarios(
+                prices, periods_per_year=_periods_per_year(), horizon=req.horizon
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if len(scenarios) < 40:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Only {len(scenarios)} scenarios at a {req.horizon}-period "
+                    "horizon — far too few to say anything about a tail. Use a "
+                    "longer lookback or a shorter horizon."
+                ),
+            )
+
+        # The mean-CVaR arm needs expected returns, and sample means over a
+        # couple of years are noise — feeding them in is the classic error
+        # that gives mean-variance optimization its reputation. Use the same
+        # equilibrium prior the rest of the pipeline uses, converted to the
+        # scenario period, so "no views" means "hold roughly what the market
+        # holds" here exactly as it does in Black-Litterman.
+        from ..market_data.covariance import portfolio_covariance
+        from ..optimization.black_litterman import (
+            calibrate_delta,
+            implied_equilibrium_returns,
+        )
+
+        ppy = _periods_per_year()
+        try:
+            sigma = portfolio_covariance(
+                prices[scenarios.columns], annualize=ppy
+            ).covariance
+            prior_w = weights.reindex(scenarios.columns).fillna(0.0)
+            if prior_w.sum() <= 0:
+                prior_w = pd.Series(
+                    1.0 / len(scenarios.columns), index=scenarios.columns
+                )
+            prior_w = prior_w / prior_w.sum()
+            delta = calibrate_delta(sigma, prior_w)
+            pi_annual = implied_equilibrium_returns(sigma, prior_w, delta)
+            pi_period = pi_annual * (req.horizon / ppy)
+        except (ValueError, KeyError):
+            pi_period = scenarios.mean()
+
+        try:
+            risk_first = min_cvar_weights(
+                scenarios, beta=req.beta, max_weight=req.max_weight
+            )
+            gamma_matched = cvar_gamma_weights(
+                scenarios, gamma=req.gamma, mu=pi_period,
+                beta=req.beta, max_weight=req.max_weight,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+        current = weights.reindex(scenarios.columns).fillna(0.0)
+        if current.sum() > 0:
+            current = current / current.sum()
+        equal = pd.Series(1.0 / len(scenarios.columns), index=scenarios.columns)
+
+        labels = {
+            "current": "What you hold now",
+            "equal_weight": "Equal weight (1/N)",
+            "gamma_cvar": f"Mean-CVaR at your γ = {req.gamma:.2f}",
+            "min_cvar": "Minimum CVaR (risk-first)",
+        }
+        table = tail_comparison(
+            scenarios,
+            {
+                "current": current,
+                "equal_weight": equal,
+                "gamma_cvar": gamma_matched.weights,
+                "min_cvar": risk_first.weights,
+            },
+            beta=req.beta,
+        )
+
+        value = req.portfolio_value
+        if value is None and req.demo:
+            value = DEMO_PORTFOLIO_VALUE
+        saved = None
+        current_cvar = cvar_of_weights(scenarios, current, req.beta)
+        if value:
+            saved = float((current_cvar - risk_first.cvar) * value)
+
+        def rows(target: pd.Series) -> list[s.WeightRow]:
+            return [
+                s.WeightRow(
+                    symbol=str(sym),
+                    current=float(current.get(sym, 0.0)),
+                    target=float(target.get(sym, 0.0)),
+                    trade=float(target.get(sym, 0.0) - current.get(sym, 0.0)),
+                    reason="",
+                )
+                for sym in scenarios.columns
+            ]
+
+        period = (
+            "day" if req.horizon == 1
+            else ("month" if 18 <= req.horizon <= 24 else f"{req.horizon}-period")
+        )
+        summary = (
+            f"Across {len(scenarios)} overlapping {period} windows, the worst "
+            f"{1 - req.beta:.0%} averaged a {current_cvar:.1%} loss on what you "
+            f"hold. The minimum-CVaR portfolio would have averaged "
+            f"{risk_first.cvar:.1%}."
+        )
+
+        return s.CVaRResponse(
+            beta=req.beta,
+            horizon=req.horizon,
+            n_scenarios=risk_first.n_scenarios,
+            tail_scenarios=risk_first.tail_scenarios,
+            min_cvar_weights=rows(risk_first.weights),
+            gamma_cvar_weights=rows(gamma_matched.weights),
+            comparison=[
+                s.TailRow(
+                    portfolio=name,
+                    label=labels.get(name, name),
+                    mean=float(row["mean"]),
+                    volatility=float(row["volatility"]),
+                    var=float(row["var"]),
+                    cvar=float(row["cvar"]),
+                    worst=float(row["worst"]),
+                    skew=float(row["skew"]) if pd.notna(row["skew"]) else 0.0,
+                )
+                for name, row in table.iterrows()
+            ],
+            portfolio_value=value,
+            cvar_saved_usd=saved,
+            summary=summary,
+        )
+
     # ----------------------------------------------- adaptive elicitation
     @app.post("/api/dose", response_model=s.DoseResponse)
     def dose(req: s.DoseRequest) -> s.DoseResponse:

@@ -250,6 +250,20 @@ as you answer, and the credible interval is carried forward rather than
 rounded away. Method, the simulation results, and the limitations are in
 [docs/ADAPTIVE_ELICITATION.md](docs/ADAPTIVE_ELICITATION.md).
 
+## Tail risk, as a second opinion
+
+Variance treats a good month and a bad month identically and assumes the
+covariance matrix captures the joint distribution. `hone/optimization/cvar.py`
+adds the blunter question — *when it goes badly, how badly?* — via
+Conditional Value-at-Risk, the average loss across the worst 5% of months,
+read straight off price history rather than assumed from Σ. Rockafellar and
+Uryasev's formulation makes it a linear program, so it solves exactly. Two
+portfolios come back: the **risk-first** one that minimizes the tail and
+never looks at expected returns, and the **γ-matched** one that trades tail
+for return at the rate your elicited risk aversion implies. The main flow
+stays variance-based; this page prices what that choice costs you.
+See [docs/TAIL_RISK.md](docs/TAIL_RISK.md).
+
 ## The conviction loop
 
 Two features turn the pipeline above into something that improves with use.
@@ -290,6 +304,7 @@ export ANTHROPIC_API_KEY=...   # without it, the offline parser is used
 - [docs/VISION.md](docs/VISION.md) — what Hone is and why.
 - [docs/ADAPTIVE_ELICITATION.md](docs/ADAPTIVE_ELICITATION.md) — DOSE: eight adaptive questions instead of thirty.
 - [docs/BACKTEST_CONVICTION.md](docs/BACKTEST_CONVICTION.md) — does any of the conviction machinery actually help, and for whom.
+- [docs/TAIL_RISK.md](docs/TAIL_RISK.md) — CVaR, why variance isn't enough, and what the tail page does not know.
 - [docs/CALIBRATION.md](docs/CALIBRATION.md) — the decision journal, Brier scoring, and learned confidence.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.

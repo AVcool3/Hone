@@ -313,6 +313,9 @@ def create_app() -> FastAPI:
         "config.js": "application/javascript",
         "demo.mp4": "video/mp4",
         "og.png": "image/png",
+        "favicon.svg": "image/svg+xml",
+        "favicon-32.png": "image/png",
+        "apple-touch-icon.png": "image/png",
         "robots.txt": "text/plain",
     }
 

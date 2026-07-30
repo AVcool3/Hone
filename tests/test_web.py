@@ -30,6 +30,17 @@ class TestStatic:
         assert "Built to be trusted" in html
         assert "Is this real money?" in html
 
+    def test_favicon_assets_served_and_linked(self, client):
+        html = client.get("/").text
+        assert 'href="/favicon.svg"' in html
+        assert "apple-touch-icon" in html
+        assert "🎯" not in html  # emoji placeholder is gone
+        svg = client.get("/favicon.svg")
+        assert svg.status_code == 200
+        assert svg.headers["content-type"] == "image/svg+xml"
+        assert client.get("/favicon-32.png").status_code == 200
+        assert client.get("/apple-touch-icon.png").status_code == 200
+
     def test_og_image_and_robots_served(self, client):
         og = client.get("/og.png")
         assert og.status_code == 200

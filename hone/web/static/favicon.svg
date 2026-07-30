@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Hone">
+  <style>
+    .mark { stroke: #26344a; }
+    @media (prefers-color-scheme: dark) { .mark { stroke: #8fa6c8; } }
+  </style>
+  <g class="mark" fill="none" stroke-width="12" stroke-linejoin="round">
+    <path d="M 68.2,18.5 L 50.0,8.0 L 13.6,29.0 L 13.6,71.0 L 50.0,92.0 L 86.4,71.0 L 86.4,29.0"/>
+    <path d="M 50.0,50.0 L 50.0,8.0"/>
+    <path d="M 50.0,50.0 L 13.6,71.0"/>
+    <path d="M 50.0,50.0 L 86.4,71.0"/>
+  </g>
+  <path d="M 74.5,7.5 L 93.5,18.5 L 93.5,36.5 L 74.5,25.5 Z" fill="#eda14e"/>
+</svg>

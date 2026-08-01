@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+dist/
+build/
+.env
+
+# Full per-investor panels from the conviction sweep (~4 MB, regenerable
+# with research/conviction/run_conviction_backtest.py); the summary CSVs are kept.
+research/conviction/results/panel_*.csv

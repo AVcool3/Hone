@@ -174,11 +174,22 @@ def trade_reasons(
         risk_cost = float(marginal_risk[i])
         if abs(trade) < 1e-4:
             reasons[sym] = "Holding steady — current weight is already near optimal."
-        elif trade > 0:
+        elif trade > 0 and ret >= risk_cost:
             reasons[sym] = (
                 f"Buy: expected return ({ret:+.1%}/yr) exceeds the risk it "
                 f"adds to your portfolio at your risk tier ({risk_cost:.1%}/yr "
                 "equivalent) — it earns its place."
+            )
+        elif trade > 0:
+            # The weights must sum to one and cannot go short, so when
+            # nothing on the menu covers its own risk the optimizer still
+            # has to hold something. Saying "it earns its place" here would
+            # be false: the comparison it claims goes the other way.
+            reasons[sym] = (
+                f"Buy: the least bad home for the money. Its expected return "
+                f"({ret:+.1%}/yr) does not cover the risk it adds at your tier "
+                f"({risk_cost:.1%}/yr equivalent), but the portfolio has to be "
+                "fully invested and every alternative is worse."
             )
         elif float(target.get(sym, 0.0)) <= 1e-8:
             reasons[sym] = (

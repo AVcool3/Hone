@@ -1,0 +1,25 @@
+# Fly.io config — `fly launch --copy-config` then `fly deploy`.
+# Add the domain with `fly certs add studiohone.com`.
+app = "studiohone"
+primary_region = "iad"
+
+[build]
+
+[env]
+  HONE_PUBLIC = "1"
+  PORT = "8000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[checks]
+  [checks.health]
+    type = "http"
+    port = 8000
+    path = "/api/health"
+    interval = "30s"
+    timeout = "5s"

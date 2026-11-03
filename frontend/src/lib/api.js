@@ -90,6 +90,8 @@ export async function quote(assetClass, ticker, market) {
     text: ticker,
     offline: true,
     with_prices: true,
+    // Price this symbol even if the account doesn't hold it yet.
+    symbols: [ticker],
   });
   const v = res.views?.[0];
   return {

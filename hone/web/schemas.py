@@ -269,6 +269,10 @@ class CompileRequest(BaseModel):
     #: Force the deterministic parser even when a Claude key is configured.
     offline: bool = False
     lookback_days: int = 30
+    #: Extra symbols to price besides the account's holdings — e.g. the
+    #: ticker just picked in the asset picker. Without this, a symbol you
+    #: don't already hold would come back ``tradeable: false``.
+    symbols: list[str] = []
 
 
 class CompiledViewOut(BaseModel):
@@ -707,3 +711,78 @@ class PredictionCatalogResponse(BaseModel):
     #: whether this deployment refreshes from Kalshi at all (HONE_KALSHI_LIVE)
     live_enabled: bool = True
     industries: list[PredictionIndustryOut]
+
+
+# ------------------------------------------------- browse every Kalshi event
+class CuratedLinkOut(BaseModel):
+    """Set when a browsed event belongs to a series in the curated
+    income-hedging catalog, so the UI can reuse its basis and side."""
+
+    industry: str
+    industry_label: str
+    series_title: str
+    basis: str
+    bad_side: str
+
+
+class BrowseEventOut(BaseModel):
+    event_ticker: str
+    series_ticker: str = ""
+    title: str
+    sub_title: str = ""
+    category: str = ""
+    curated: CuratedLinkOut | None = None
+
+
+class BrowseCategoryOut(BaseModel):
+    name: str
+    count: int
+
+
+class PredictionBrowseResponse(BaseModel):
+    """One page of search results over every open Kalshi event."""
+
+    #: "live" (full index), "live-partial" (first index still building)
+    #: or "snapshot" (offline: the curated catalog's events only)
+    source: str
+    complete: bool
+    #: True while a background index (re)build is running
+    building: bool = False
+    as_of: str | None = None
+    live_enabled: bool = True
+    #: events in the index, and how many of them match the query
+    indexed: int
+    total: int
+    offset: int
+    limit: int
+    categories: list[BrowseCategoryOut]
+    events: list[BrowseEventOut]
+
+
+class PredictionEventResponse(BaseModel):
+    """Every open market in one event, most-traded first."""
+
+    event: BrowseEventOut
+    markets: list[PredictionMarketOut]
+    #: "live" or "snapshot"
+    source: str
+    as_of: str | None = None
+
+
+# ------------------------------------------------- the full asset directory
+class AssetDirectoryRequest(BaseModel):
+    """Which list to return: the demo universe, or every Alpaca asset."""
+
+    demo: bool = False
+    credentials: AlpacaCredentials | None = None
+
+
+class AssetDirectoryResponse(BaseModel):
+    #: "alpaca" (every active asset Alpaca lists) or "demo" (sample universe)
+    source: str
+    #: "stocks" or "crypto"
+    asset_class: str
+    count: int
+    as_of: str | None = None
+    #: [symbol, name, exchange] triples, compact so ~11k stocks stay small
+    assets: list[list[str]]

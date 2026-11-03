@@ -69,11 +69,31 @@
 .pm-table details.expander .expander__body { padding: 0 0 6px 28px; max-width: 46ch; }
 .pm-rows { display: none; }
 
+/* --- All Kalshi markets (BrowseAll.jsx) ---------------------------------- */
+/* Category chips: wrap onto several lines; the pressed one looks selected. */
+.pm-cats { display: flex; flex-wrap: wrap; gap: 8px; }
+.pm-cats .pilltab { min-height: 40px; padding: 8px 14px; font-size: 14.5px; }
+.pm-cats .pilltab[aria-pressed='true'] { background: var(--lavender); color: var(--lavender-ink); border-color: transparent; font-weight: 600; }
+.pm-cats__n { color: var(--ink-3); font-weight: 400; margin-left: 4px; font-variant-numeric: tabular-nums; }
+/* One event: the whole header is the open/close button. */
+.pm-event { padding-top: var(--s4); padding-bottom: var(--s4); }
+.pm-event__head {
+  appearance: none; background: none; border: 0; padding: 0; width: 100%; cursor: pointer;
+  font: inherit; color: inherit; text-align: left; min-height: 44px;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s3);
+}
+.pm-event__title { display: block; font-weight: 600; font-size: 16.5px; line-height: 1.35; }
+.pm-event__sub { display: block; color: var(--ink-2); font-size: 14.5px; margin-top: 2px; }
+.pm-event__badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+.pm-event__chev { color: var(--ink-3); width: 1em; text-align: center; }
+
 /* ---- responsive ----------------------------------------------------------- */
 @media (max-width: 1040px) {
   .pm-sens { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 640px) {
+  .pm-event__head { flex-direction: column; }
+  .pm-event__badges { justify-content: flex-start; }
   .pm-industries { grid-template-columns: 1fr; }
   .pm-compare { grid-template-columns: 1fr; }
   .pm-sens { grid-template-columns: 1fr; }

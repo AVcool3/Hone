@@ -118,6 +118,23 @@ class AlpacaClient:
         raw = self._request("GET", self.trading_url, "/v2/positions")
         return [Position.from_api(p) for p in raw]
 
+    def list_assets(self, asset_class: str = "us_equity") -> list[dict[str, Any]]:
+        """Every active asset Alpaca lists for one asset class.
+
+        ``asset_class`` is ``"us_equity"`` (stocks and ETFs, roughly 11-12k
+        symbols) or ``"crypto"`` (pairs such as ``BTC/USD``). One call
+        returns the whole list; Alpaca does not paginate this endpoint.
+        See :mod:`hone.market_data.asset_directory` for the cached,
+        trimmed version the web app serves.
+        """
+        raw = self._request(
+            "GET",
+            self.trading_url,
+            "/v2/assets",
+            params={"status": "active", "asset_class": asset_class},
+        )
+        return list(raw or [])
+
     def portfolio_weights(self) -> pd.Series:
         """Current portfolio weights by market value (long positions
         positive, shorts negative), normalized by gross exposure."""

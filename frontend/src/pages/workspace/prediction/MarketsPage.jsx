@@ -8,15 +8,27 @@
  *
  * Desktop shows a table per series; phones get expandable rows instead,
  * so nothing ever scrolls the page sideways.
+ *
+ * Two views, switched at the top (and kept in the URL as ?view=all so it
+ * can be linked to):
+ *   curated (default) — the hand-picked income hedges below
+ *   all               — every open Kalshi market, searchable (BrowseAll.jsx)
  */
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWorkspace } from '../../../lib/store.jsx';
 import { appPath } from '../../../lib/products.js';
 import { clamp, fmtCents, fmtDate, fmtNum, fmtPct } from '../../../lib/format.js';
-import { Badge, Button, ErrorNotice, Expander, Notice, PageHeader, SkeletonRows } from '../../../components/ui.jsx';
+import { Badge, Button, ErrorNotice, Expander, Notice, PageHeader, Segmented, SkeletonRows } from '../../../components/ui.jsx';
 import { askFor, badSideOf, BASIS_DEFAULT, BASIS_TEXT, isLive, probFor, sourceLabel, usePredictionCatalog } from './catalog.js';
+import BrowseAll from './BrowseAll.jsx';
 import './prediction.css';
+
+/* EDIT HERE to rename the two views. */
+const VIEWS = [
+  { value: 'curated', label: 'Income hedges' },
+  { value: 'all', label: 'All Kalshi markets' },
+];
 
 const SLUG = 'prediction-markets';
 
@@ -24,6 +36,9 @@ export default function MarketsPage() {
   const { ws, update } = useWorkspace(SLUG);
   const { catalog, loading, error, reload } = usePredictionCatalog();
   const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const view = params.get('view') === 'all' ? 'all' : 'curated';
+  const setView = v => setParams(v === 'all' ? { view: 'all' } : {}, { replace: true });
   // Which industry tab is showing; starts on the one the hedge tool uses.
   const [tab, setTab] = useState(ws.pm.industry && ws.pm.industry !== 'manual' ? ws.pm.industry : 'snow');
   const [openOnly, setOpenOnly] = useState(false);
@@ -53,11 +68,16 @@ export default function MarketsPage() {
     <div className="pm">
       <PageHeader
         eyebrow="Income hedging"
-        title="Markets that move with a paycheck"
-        lede="Kalshi event contracts grouped by the kind of income they can offset. Pick one to size a hedge against your own season."
-        meta={catalog && <Badge tone={isLive(catalog) ? 'live' : 'sample'}>{isLive(catalog) ? 'Live markets' : 'Market snapshot'}</Badge>}
+        title={view === 'all' ? 'Every Kalshi market' : 'Markets that move with a paycheck'}
+        lede={view === 'all'
+          ? 'Search every open event contract on Kalshi — economics, weather, crypto, companies, politics, sports. Open one for live prices, then size a hedge with it.'
+          : 'Kalshi event contracts grouped by the kind of income they can offset. Pick one to size a hedge against your own season.'}
+        meta={view === 'curated' && catalog && <Badge tone={isLive(catalog) ? 'live' : 'sample'}>{isLive(catalog) ? 'Live markets' : 'Market snapshot'}</Badge>}
       />
 
+      <div className="mb-5"><Segmented label="Which markets" options={VIEWS} value={view} onChange={setView} /></div>
+
+      {view === 'all' ? <BrowseAll /> : <>
       {catalog && <Notice tone={isLive(catalog) ? 'info' : 'attention'} className="mb-5">{sourceLabel(catalog)}</Notice>}
       {error && <div className="mb-5"><ErrorNotice error={error} onRetry={reload} /></div>}
       {loading && <div className="card"><SkeletonRows rows={6} /></div>}
@@ -94,6 +114,7 @@ export default function MarketsPage() {
           )}
         </>
       )}
+      </>}
     </div>
   );
 }

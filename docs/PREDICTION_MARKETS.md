@@ -14,8 +14,10 @@ machinery Hone already had, the market catalog and where its data comes
 from, and the honest list of what the tool cannot do.
 
 Everything lives in `hone/prediction/`; the page is the third product tab
-at `/prediction-markets`; the API is `GET /api/predict/markets` and
-`POST /api/predict/hedge`.
+at `/prediction-markets`; the API is `GET /api/predict/markets` (the
+curated catalog), `GET /api/predict/browse` and
+`GET /api/predict/event/{event_ticker}` (every other open Kalshi market,
+see "Browsing the whole exchange" below) and `POST /api/predict/hedge`.
 
 ---
 
@@ -189,6 +191,31 @@ caching for ten minutes; `source` in the response says which you got.
 `research/prediction/fetch_kalshi_snapshot.py` on 3 November 2026 and should
 be refreshed when a new season's contracts list (Aspen's December 2026 series
 existed but had no open contracts that day).
+
+### Browsing the whole exchange
+
+The curated catalog is a starting point, not a limit. *Markets → All Kalshi
+markets* (`?view=all`) searches every open event on Kalshi: elections,
+sports, economics, weather, crypto, companies. On 3 November 2026 that was
+more than 16,000 events, about 10 MB and 2.5 minutes of paging at the public
+API's rate limit, far too much to fetch per page view. So
+`hone/prediction/kalshi_browse.py` does it in two layers:
+
+1. **An event index.** A background thread walks `GET /events?status=open`
+   (200 per page, with a pause between pages) and keeps each event's ticker,
+   title, subtitle and category. `GET /api/predict/browse?q=&category=&offset=&limit=`
+   searches it on the server (every word of `q` must match) and returns one
+   page plus per-category counts. During the first build, searches see the
+   events indexed so far (`source: "live-partial"`). After that the index is
+   rebuilt every 30 minutes and swapped in only when complete.
+2. **One event's markets, live.** `GET /api/predict/event/{event_ticker}`
+   fetches `GET /markets?event_ticker=…` when the user opens an event,
+   cached for a minute.
+
+*Hedge with YES/NO* copies that side's ask into the income-hedge sizer as
+"Another exposure". A browsed market has no basis verdict, so you set the
+correlation yourself; events in a curated series are marked and keep
+theirs. With `HONE_KALSHI_LIVE=0` both endpoints serve the curated snapshot.
 
 Hone holds no Kalshi credentials and places no orders. It reads prices, sizes
 a position and explains it.

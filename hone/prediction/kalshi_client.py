@@ -323,6 +323,44 @@ class KalshiClient:
         data = self._get("/markets", **params)
         return [normalize_market(m) for m in data.get("markets", [])]
 
+    def events_page(self, status: str | None = "open", limit: int = 200,
+                    cursor: str | None = None) -> tuple[list[dict[str, Any]], str | None]:
+        """One page of events (raw), plus the cursor for the next page.
+
+        Used by :mod:`hone.prediction.kalshi_browse` to walk the *whole*
+        exchange. ``limit`` is capped at 200 by Kalshi. The returned cursor
+        is ``None`` on the last page.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if status:
+            params["status"] = status
+        if cursor:
+            params["cursor"] = cursor
+        data = self._get("/events", **params)
+        return list(data.get("events") or []), (data.get("cursor") or None)
+
+    def event_markets(self, event_ticker: str, status: str | None = "open",
+                      max_pages: int = 5) -> list[dict[str, Any]]:
+        """Every market in one event, normalized (follows the cursor).
+
+        Most events have a handful of markets; a few (elections, ranges)
+        have hundreds, hence the page cap.
+        """
+        out: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for _ in range(max_pages):
+            params: dict[str, Any] = {"event_ticker": event_ticker, "limit": 200}
+            if status:
+                params["status"] = status
+            if cursor:
+                params["cursor"] = cursor
+            data = self._get("/markets", **params)
+            out.extend(normalize_market(m) for m in data.get("markets", []))
+            cursor = data.get("cursor") or None
+            if not cursor:
+                break
+        return out
+
 
 # ----------------------------------------------------------- the catalog
 def load_snapshot(path: Path = SNAPSHOT_PATH) -> dict[str, Any]:

@@ -83,7 +83,9 @@ export default function IncomeHedgePage() {
   // Price: a chosen market's ask for that side; otherwise the typed illustrative price.
   const rawAsk = market ? askFor(market, side) : null;
   const price = clamp(rawAsk ?? pm.price ?? 0.3, MIN_PRICE, MAX_PRICE);
-  const priceIsIllustrative = !market;
+  // A price copied from "All Kalshi markets" (manual mode + a market ticker) is a real
+  // ask from when it was picked, not an illustration.
+  const priceIsIllustrative = !market && !(manual && pm.marketTicker);
   const askOutOfRange = market && (rawAsk == null || rawAsk <= MIN_PRICE || rawAsk >= MAX_PRICE);
   const marketProb = market ? probFor(market, side) : null;
 
@@ -431,9 +433,14 @@ export default function IncomeHedgePage() {
 /* ------------------------------------------------------------ ManualPrice */
 /** Typed price for "Another exposure" or a series with nothing open. Always labelled illustrative. */
 function ManualPrice({ pm, setPm }) {
+  // Set when the price was copied from Markets → All Kalshi markets; editing the price clears it.
+  const picked = pm.marketTicker;
   return (
     <div className="stack">
-      <Field label="Contract price" htmlFor="pm-price" hint="Illustrative price — not a live market. Use the ask of the side that pays in your bad season.">
+      <Field label="Contract price" htmlFor="pm-price"
+        hint={picked
+          ? `The ${(pm.side || '').toUpperCase()} ask on ${picked} when you picked it from Markets. It doesn’t update — pick it again there for a fresh price.`
+          : 'Illustrative price — not a live market. Use the ask of the side that pays in your bad season.'}>
         <NumberSlider id="pm-price" ariaLabel="Contract price in cents" value={pm.price ?? 0.3}
           onChange={v => setPm({ price: v, marketTicker: null })} min={0.01} max={0.99} step={1} scale={100} suffix="¢" inputWidth={110} />
       </Field>

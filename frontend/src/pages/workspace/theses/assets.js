@@ -10,7 +10,20 @@ export const ASSET_NAMES = {
   'AVAX/USD': 'Avalanche', 'DOT/USD': 'Polkadot',
 };
 
-export const assetName = sym => ASSET_NAMES[sym] || '';
+/*
+ * Names learned from the full asset directory (every Alpaca symbol — see
+ * assetDirectory.js). Filled in once the directory loads, so `assetName`
+ * knows "COST" is Costco even though it isn't in ASSET_NAMES above.
+ * ASSET_NAMES wins when both have a name (it's shorter and friendlier).
+ */
+const DIRECTORY_NAMES = new Map();
+
+/** Remember names from a loaded directory: [{ symbol, name }, ...]. */
+export function registerAssetNames(assets) {
+  for (const a of assets) if (a.name) DIRECTORY_NAMES.set(a.symbol, a.name);
+}
+
+export const assetName = sym => ASSET_NAMES[sym] || DIRECTORY_NAMES.get(sym) || '';
 
 /**
  * Overlapping or conflicting theses: more than one thesis on the same asset.

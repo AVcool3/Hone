@@ -11,7 +11,8 @@ import SquishSwitch from '../../../reactbits/SquishSwitch/SquishSwitch.jsx';
 import { Badge, Button, Field, Notice, NumberSlider, Segmented } from '../../../components/ui.jsx';
 import { docPath } from '../../../lib/products.js';
 import { fmtAgo, fmtHorizon, fmtPct, fmtPrice, fmtSPct, impliedChange } from '../../../lib/format.js';
-import { assetName, ASSET_NAMES } from './assets.js';
+import AssetPicker from '../../../components/AssetPicker.jsx';
+import { assetName } from './assets.js';
 
 const HORIZONS = [
   { value: 91, label: '3 mo' },
@@ -20,9 +21,14 @@ const HORIZONS = [
   { value: 730, label: '2 yrs' },
 ];
 
-export default function ThesisEditor({ thesis: t, product, universe, onChange, onDuplicate, onDelete, children }) {
+/*
+ * `directory` is useAssetDirectory()'s result: { assets, source, loading }.
+ * With an Alpaca account it holds every symbol Alpaca lists; with sample
+ * data, just the demo universe.
+ */
+export default function ThesisEditor({ thesis: t, product, universe, directory, onChange, onDuplicate, onDelete, children }) {
   const chg = impliedChange(t.refPrice, t.target);
-  const listId = `assets-${product.slug}`;
+  const everySymbol = directory?.source === 'alpaca';
   // Slider range for the target: 30% to 300% of the reference price.
   const lo = t.refPrice ? Math.max(0.01, +(t.refPrice * 0.3).toFixed(2)) : 1;
   const hi = t.refPrice ? +(t.refPrice * 3).toFixed(2) : 1000;
@@ -57,22 +63,27 @@ export default function ThesisEditor({ thesis: t, product, universe, onChange, o
         <b>{t.target ? fmtPrice(t.target) : '…'}</b> in <b>{fmtHorizon(t.horizonDays)}</b>, and I’m <b>{fmtPct(t.confidence)}</b> confident.
       </p>
 
-      <Field label="Asset" hint={`Search by ticker or name. ${product.slug === 'crypto' ? 'Crypto pairs look like SOL/USD.' : ''}`} htmlFor={`tk-${t.id}`}>
-        <input
+      <Field
+        label="Asset"
+        hint={[
+          'Search by ticker or name.',
+          everySymbol
+            ? `All ${directory.assets.length.toLocaleString()} ${product.slug === 'crypto' ? 'crypto pairs' : 'US stocks and ETFs'} on Alpaca.`
+            : 'Sample data covers only the symbols listed — connect Alpaca under Data & account to search every market.',
+          product.slug === 'crypto' ? 'Crypto pairs look like SOL/USD.' : '',
+        ].filter(Boolean).join(' ')}
+        htmlFor={`tk-${t.id}`}
+      >
+        <AssetPicker
           id={`tk-${t.id}`}
-          type="text"
-          list={listId}
-          autoCapitalize="characters"
-          autoComplete="off"
           value={t.ticker}
+          assets={directory?.assets || []}
+          suggested={universe}
+          loading={directory?.loading}
           placeholder={product.example?.ticker}
-          onChange={e => onChange({ ticker: e.target.value.toUpperCase().trim(), refPrice: null, refAt: null, tradeable: true })}
+          // A new ticker needs a new reference price: clear the old one so the quote hook fetches it.
+          onChange={sym => onChange({ ticker: sym, refPrice: null, refAt: null, tradeable: true })}
         />
-        <datalist id={listId}>
-          {[...new Set([...universe, ...Object.keys(ASSET_NAMES).filter(k => (product.slug === 'crypto') === k.includes('/'))])].map(sym => (
-            <option key={sym} value={sym} label={assetName(sym)} />
-          ))}
-        </datalist>
       </Field>
       {t.ticker && t.tradeable === false && (
         <Notice tone="attention" title="No price history here for this symbol.">

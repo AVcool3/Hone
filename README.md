@@ -48,12 +48,17 @@ each at its own URL, rather than a step-by-step flow:
 | Data & account (`settings`) | Sample data vs. Alpaca paper account, optional sign-in |
 
 Prediction Markets has its own tools: `hedge` (size an income hedge) and
-`markets` (browse the Kalshi catalog). Public pages per product: overview,
+`markets` (browse the curated Kalshi catalog, or search every open Kalshi
+market). Public pages per product: overview,
 `how-it-works`, `methodology`, `backtests`, `setup` — the last three render
 the files in `docs/` verbatim. Everything runs on **sample data** with no
 Alpaca account; switch to your paper account under *Data & account* (keys
 are sent per request and never stored server-side), or leave them blank to
-use the server's `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`. The JSON API is
+use the server's `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`. With an Alpaca
+account the thesis asset picker searches **every** active US stock and ETF
+(or every crypto pair) Alpaca lists, by ticker or company name
+(`POST /api/assets`, cached 12 hours in `hone/market_data/asset_directory.py`);
+sample data covers only the demo symbols. The JSON API is
 documented at `/docs` (OpenAPI) when the server is running.
 
 ### Working on the frontend
@@ -216,6 +221,12 @@ you never chose.
   snow and ski-resort openings, ad-spend indices, labor, housing and
   rates, travel, fuel — read from the public API with a bundled snapshot
   as the fallback. Hone never places orders.
+* **Every other Kalshi market, searchable.** *Markets → All Kalshi
+  markets* searches every open event on the exchange (16,000+), not just
+  the curated hedges. The server indexes them in the background
+  (`hone/prediction/kalshi_browse.py`, rebuilt every 30 minutes) and
+  fetches an event's live prices when you open it; *Hedge with YES/NO*
+  copies that price into the income-hedge sizer.
 
 ```bash
 python research/prediction/fetch_kalshi_snapshot.py   # refresh the bundled snapshot

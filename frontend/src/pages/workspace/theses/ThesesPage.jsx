@@ -26,6 +26,7 @@ import ThesisEditor from './ThesisEditor.jsx';
 import Compiler from './Compiler.jsx';
 import FlexibleViews from './FlexibleViews.jsx';
 import { findConflicts } from './assets.js';
+import { useAssetDirectory } from './assetDirectory.js';
 
 export default function ThesesPage() {
   const product = useProduct();
@@ -52,6 +53,9 @@ export default function ThesesPage() {
     if (universe.length || !product.example) return;
     quote(product.assetClass, product.example.ticker, market).then(q => setRuntime(`${slug}:universe`, q.universe)).catch(() => {});
   }, [universe.length, product, market, slug, setRuntime]);
+
+  /* Every symbol the picker can search (all of Alpaca's list when connected). */
+  const directory = useAssetDirectory(product, market);
 
   /* ---------------------------------------------------------------- live allocation */
   const sig = portfolioSignature(gamma, ws);
@@ -192,6 +196,7 @@ export default function ThesesPage() {
                 thesis={selected}
                 product={product}
                 universe={universe}
+                directory={directory}
                 onChange={patch => updateThesis(selected.id, patch)}
                 onDuplicate={() => duplicate(selected)}
                 onDelete={() => remove(selected.id)}

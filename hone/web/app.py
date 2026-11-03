@@ -30,6 +30,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import re
 import secrets
 from contextvars import ContextVar
 from datetime import date, timedelta
@@ -37,10 +38,17 @@ from pathlib import Path
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 
 from ..hedging.hedge import portfolio_beta, portfolio_volatility, revealed_gamma
 from ..market_data.alpaca_client import AlpacaClient, AlpacaError
+# Imported here, not inside the routes: two first requests importing
+# hone.prediction from different worker threads at once can deadlock
+# Python's import lock.
+from ..market_data.asset_directory import ALPACA_CLASS, cached_directory
+from ..prediction.kalshi_browse import event_detail, search_events
+from ..prediction.kalshi_client import KalshiError
 from ..market_data.covariance import portfolio_covariance
 from ..optimization.mvo import trade_reasons
 from ..optimization.views import View
@@ -312,8 +320,40 @@ def _load_crypto_market(
     return prices.tail(lookback_days), weights
 
 
+#: What a symbol may look like before it is sent to Alpaca: AAPL, BRK.B,
+#: BF-B, or a crypto pair such as BTC/USD.
+_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}(/[A-Z]{2,5})?$")
+#: Most extra symbols one compile request will price.
+_MAX_EXTRA_SYMBOLS = 10
+
+
+def _symbols_to_price(text: str, requested: list[str]) -> list[str]:
+    """Symbols to price for /api/compile-view besides the holdings.
+
+    ``requested`` comes from the caller (the asset picker); the rest are the
+    tickers the deterministic parser finds in ``text``. Only well-formed
+    symbols are kept, capped at ``_MAX_EXTRA_SYMBOLS``.
+    """
+    from ..llm.fallback import compile_offline
+
+    found = [t.upper().strip() for t in requested]
+    try:
+        found += [v.ticker.upper() for v in compile_offline(text, None).views]
+    except Exception:  # the parser is best effort here; pricing still works without it
+        pass
+    out: list[str] = []
+    for sym in found:
+        if _SYMBOL_RE.match(sym) and sym not in out:
+            out.append(sym)
+    return out[:_MAX_EXTRA_SYMBOLS]
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Hone", version="0.2.0")
+
+    # Compress larger responses (the full asset list is ~500 KB of JSON,
+    # roughly a quarter of that gzipped). Small responses are left alone.
+    app.add_middleware(GZipMiddleware, minimum_size=2048)
 
     # ------------------------------------------- per-request asset class
     @app.middleware("http")
@@ -1402,12 +1442,28 @@ def create_app() -> FastAPI:
         universe: list[str] = []
         prices_map: dict[str, float] = {}
         if req.with_prices:
+            # Price more than the holdings: the symbols the caller asked for
+            # (the asset picker sends the ticker just chosen) plus any ticker
+            # the text names. Without this, a stock you don't own yet came
+            # back "no price history" even though Alpaca has it.
+            extra = [] if req.demo else _symbols_to_price(req.text, req.symbols)
+            lookback = max(req.lookback_days, 10)
             try:
-                prices, _ = _load_market(
-                    req.demo, req.credentials, [], _market_proxy(),
-                    max(req.lookback_days, 10),
-                )
-                universe = [str(c) for c in prices.columns]
+                try:
+                    prices, _ = _load_market(
+                        req.demo, req.credentials, extra, _market_proxy(), lookback,
+                    )
+                except (HTTPException, AlpacaError):
+                    if not extra:
+                        raise
+                    # One bad symbol (a typo, a delisted ticker) makes Alpaca
+                    # reject the whole request; retry with the holdings only.
+                    prices, _ = _load_market(
+                        req.demo, req.credentials, [], _market_proxy(), lookback,
+                    )
+                # A symbol with no bars at all comes back as an all-NaN
+                # column; it is not tradeable, so leave it out.
+                universe = [str(c) for c in prices.columns if prices[c].notna().any()]
                 last = prices.ffill().iloc[-1]
                 prices_map = {
                     str(sym): float(val)
@@ -1602,6 +1658,70 @@ def create_app() -> FastAPI:
         from ..prediction.kalshi_client import curated_catalog
 
         return s.PredictionCatalogResponse(**curated_catalog(live=live))
+
+    @app.get("/api/predict/browse", response_model=s.PredictionBrowseResponse)
+    def predict_browse(
+        q: str = "",
+        category: str | None = None,
+        offset: int = 0,
+        limit: int = 30,
+        live: bool | None = None,
+    ) -> s.PredictionBrowseResponse:
+        """Search every open Kalshi event, not just the curated catalog.
+
+        Every word of ``q`` must appear in the event's title, subtitle,
+        ticker or category. ``category`` narrows to one Kalshi category;
+        the response's ``categories`` counts ignore it, so the UI can show
+        how many matches each category holds. The index is built in the
+        background (see hone/prediction/kalshi_browse.py); ``source`` and
+        ``complete`` say how much of the exchange it covers yet.
+        """
+        return s.PredictionBrowseResponse(
+            **search_events(q=q, category=category or None, offset=offset,
+                            limit=limit, live=live)
+        )
+
+    @app.get("/api/predict/event/{event_ticker}", response_model=s.PredictionEventResponse)
+    def predict_event(event_ticker: str, live: bool | None = None) -> s.PredictionEventResponse:
+        """Every open market in one Kalshi event, live (cached a minute)."""
+        try:
+            return s.PredictionEventResponse(**event_detail(event_ticker, live=live))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except KalshiError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+
+    # ------------------------------------------------------- asset directory
+    @app.post("/api/assets", response_model=s.AssetDirectoryResponse)
+    def asset_directory(req: s.AssetDirectoryRequest) -> s.AssetDirectoryResponse:
+        """Every symbol the asset picker can offer.
+
+        Live: every active, tradable asset Alpaca lists for this product
+        (~11k US stocks and ETFs, or Alpaca's crypto pairs), cached for 12
+        hours and shared by all visitors. Demo: the sample universe, since
+        demo prices exist only for those symbols.
+        """
+        product = "crypto" if is_crypto() else "stocks"
+        if is_prediction():
+            raise HTTPException(
+                status_code=400,
+                detail="Prediction markets have no asset list; use /api/predict/browse.",
+            )
+        if req.demo:
+            prices, _ = _load_market(True, None, [], _market_proxy(), 30)
+            symbols = [str(c) for c in prices.columns]
+            return s.AssetDirectoryResponse(
+                source="demo", asset_class=product, count=len(symbols), as_of=None,
+                assets=[[sym, "", ""] for sym in symbols],
+            )
+        try:
+            entry = cached_directory(ALPACA_CLASS[product], lambda: _client(req.credentials))
+        except AlpacaError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        return s.AssetDirectoryResponse(
+            source="alpaca", asset_class=product, count=len(entry["assets"]),
+            as_of=entry["as_of"], assets=entry["assets"],
+        )
 
     @app.post("/api/predict/hedge", response_model=s.ContractHedgeResponse)
     def predict_hedge(req: s.ContractHedgeRequest) -> s.ContractHedgeResponse:

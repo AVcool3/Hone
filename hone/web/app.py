@@ -73,6 +73,8 @@ def _normalize_asset_class(value: str | None) -> str | None:
         return "crypto"
     if v in ("equities", "equity", "stocks"):
         return "equities"
+    if v in ("prediction", "prediction-markets", "prediction_markets", "predict", "events"):
+        return "prediction"
     return None
 
 
@@ -96,6 +98,11 @@ def asset_class() -> str:
 
 def is_crypto() -> bool:
     return asset_class() == "crypto"
+
+
+def is_prediction() -> bool:
+    """The prediction-markets product: same questionnaire, no brokerage."""
+    return asset_class() == "prediction"
 
 
 def _periods_per_year() -> int:
@@ -312,7 +319,12 @@ def create_app() -> FastAPI:
     async def resolve_asset_class(request: Request, call_next):
         """Pick the product from the URL: /crypto/... or ?asset_class=."""
         explicit = _normalize_asset_class(request.query_params.get("asset_class"))
-        by_path = "crypto" if request.url.path.rstrip("/").startswith("/crypto") else None
+        path = request.url.path.rstrip("/")
+        by_path = None
+        if path.startswith("/crypto"):
+            by_path = "crypto"
+        elif path.startswith("/prediction-markets"):
+            by_path = "prediction"
         token = _ASSET_CLASS_CTX.set(explicit or by_path)
         try:
             return await call_next(request)
@@ -349,6 +361,12 @@ def create_app() -> FastAPI:
         """Same single-page app, crypto product (see resolve_asset_class)."""
         return FileResponse(STATIC_DIR / "index.html")
 
+    @app.get("/prediction-markets", include_in_schema=False)
+    @app.get("/prediction-markets/", include_in_schema=False)
+    def index_prediction() -> FileResponse:
+        """Same single-page app, prediction-markets product."""
+        return FileResponse(STATIC_DIR / "index.html")
+
     @app.get("/api/health", include_in_schema=False)
     def health() -> dict:
         return {"status": "ok"}
@@ -357,6 +375,30 @@ def create_app() -> FastAPI:
     def config() -> dict:
         """Asset-class configuration the frontend uses to swap copy."""
         crypto = is_crypto()
+        if is_prediction():
+            return {
+                "asset_class": "prediction",
+                "auth_enabled": True,
+                "market_proxy": None,
+                "periods_per_year": None,
+                "copy": {
+                    "product": "Hone Markets",
+                    "descriptor": "Hedge the income risk you already carry",
+                    "asset_word": "contracts",
+                    "asset_word_singular": "contract",
+                    "holdings_word": "the exposure you carry",
+                    "example_ticker": "KXASPSNOWM",
+                    "example_target": "35¢",
+                    "market_name": "Kalshi",
+                    "cash_word": "cash",
+                    "account_word": "Kalshi account (not connected — Hone only sizes)",
+                    "hedge_note": (
+                        "Hone sizes event contracts against your income risk and explains "
+                        "the position. It never places orders, and it holds no Kalshi keys."
+                    ),
+                    "volatility_note": "",
+                },
+            }
         return {
             "asset_class": asset_class(),
             "auth_enabled": True,
@@ -1519,6 +1561,77 @@ def create_app() -> FastAPI:
                 for st in result.strategies
             ],
             behavior=behavior,
+        )
+
+    # --------------------------------------------------- prediction markets
+    @app.get("/api/predict/markets", response_model=s.PredictionCatalogResponse)
+    def predict_markets(live: bool | None = None) -> s.PredictionCatalogResponse:
+        """Curated Kalshi markets, grouped by the income they can hedge.
+
+        Returns at once: the bundled snapshot until a background refresh
+        has pulled live prices, then the live data (cached ten minutes).
+        ``source`` says which one you got.
+        """
+        from ..prediction.kalshi_client import curated_catalog
+
+        return s.PredictionCatalogResponse(**curated_catalog(live=live))
+
+    @app.post("/api/predict/hedge", response_model=s.ContractHedgeResponse)
+    def predict_hedge(req: s.ContractHedgeRequest) -> s.ContractHedgeResponse:
+        """Size an event contract against income risk at the user's gamma.
+
+        The optimizer maximizes expected CRRA utility of end-of-season
+        wealth — the same objective as the stocks product, with a binary
+        payoff in place of stock returns — and reports the position, its
+        decomposition into pure hedge and speculative tilt, the dollar
+        value of hedging (certainty-equivalent gain) and the most the user
+        should pay per contract.  See hone/prediction/hedge.py.
+        """
+        from ..prediction.hedge import IncomeExposure, hedge_income
+
+        confidence = req.confidence
+        if (
+            req.calibration is not None
+            and req.calibration.actionable
+            and req.own_prob is not None
+        ):
+            # The journal has scored enough of this user's predictions to
+            # know what their stated confidence is worth; apply the same
+            # map the views page uses before blending the belief.
+            from ..journal.calibration import CalibrationReport, apply_calibration
+
+            report = CalibrationReport(
+                n=req.calibration.n, brier=float("nan"), base_rate=float("nan"),
+                mean_confidence=float("nan"), intercept=req.calibration.intercept,
+                slope=req.calibration.slope, reliability=float("nan"),
+                resolution=float("nan"), uncertainty=float("nan"),
+                skill_vs_base_rate=float("nan"), actionable=True,
+            )
+            confidence = float(apply_calibration(confidence, report))
+
+        exp = IncomeExposure(
+            wealth=req.wealth,
+            loss=req.loss,
+            price=req.price,
+            gamma=req.gamma,
+            market_prob=req.market_prob,
+            own_prob=req.own_prob,
+            confidence=confidence,
+            basis_correlation=req.basis_correlation,
+            fee_multiplier=req.fee_multiplier if req.include_fees else 0.0,
+        )
+        try:
+            plan = hedge_income(exp)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        payload = plan.to_dict()
+        return s.ContractHedgeResponse(
+            tier=_tier_info(req.gamma),
+            confidence_used=confidence,
+            confidence_stated=req.confidence,
+            market_ticker=req.market_ticker,
+            side=req.side,
+            **payload,
         )
 
     return app

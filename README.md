@@ -135,6 +135,7 @@ hone/
 ├── journal/         # decision journal, Brier scoring, learned confidence
 ├── llm/             # Conviction Compiler (Claude + offline parser)
 ├── crypto/          # the crypto product's universe and parameters
+├── prediction/      # Hone Markets: event-contract hedging, Kalshi catalog
 ├── backtest/        # walk-forward engine + conviction population study
 ├── web/             # FastAPI JSON API + single-page UI
 ├── pipeline.py      # end-to-end flow
@@ -220,8 +221,9 @@ python -m hone serve --asset-class crypto   # the crypto site
 HONE_ASSET_CLASS=crypto python -m hone serve   # same thing via env
 ```
 
-**One deployment serves both.** The site has product tabs: `/` is the
-stocks product and `/crypto` is the crypto one — so `studiohone.com/crypto`
+**One deployment serves all three.** The site has product tabs: `/` is the
+stocks product, `/crypto` is the crypto one and `/prediction-markets` is
+Hone Markets (below) — so `studiohone.com/crypto`
 works with no extra service, no second domain, and no DNS changes. The
 asset class resolves per request (URL path, or `?asset_class=crypto` on
 API calls), and each product keeps its own saved state in the browser.
@@ -231,6 +233,45 @@ product if you ever want them served separately.
 
 The research basis, every parameter difference, and the known limitations
 are documented in [docs/CRYPTO_RESEARCH.md](docs/CRYPTO_RESEARCH.md).
+
+## Hone Markets (third product): hedging a paycheck
+
+The third tab, `studiohone.com/prediction-markets`, turns the same
+machinery around. The stocks product asks how much of a risky asset you
+should hold given your γ; this one is for people whose *income* is the
+risky asset — a ski instructor whose season depends on Aspen snowfall, an
+ad freelancer whose bookings follow ad budgets, a recruiter whose fees
+follow hiring. Kalshi lists event contracts on exactly those things, and a
+contract that pays when the season goes badly is a hedge for a position
+you never chose.
+
+* **Same γ, same utility, same certainty equivalent** — the questionnaire
+  is shared, and a number measured on the Stocks tab is offered here.
+* **Insurance first, then the bet.** Maximizing expected CRRA utility of
+  end-of-season wealth gives a position that always splits into a pure
+  hedge (your loss × how tightly the market tracks it — the analogue of
+  the beta-sized index short) and a speculative tilt on the gap between
+  your odds and the price, shrunk by γ. The page labels both.
+* **What it is worth, and the most to pay.** The certainty-equivalent
+  gain prices the hedge in dollars at your γ; a closed-form reservation
+  price `c_max = E[U′(W₀)·B] / E[U′(W₀)]` is the ceiling above which the
+  tool shows no position — the Merton risk budget for a binary event.
+* **Your odds against the market** are blended the Black-Litterman way,
+  with the journal's calibration map applied to your confidence once it
+  has scored enough of your predictions. Basis risk is a slider, and the
+  hedge shrinks to ρ·L.
+* **Live Kalshi data, no account.** 41 curated series in six groups —
+  snow and ski-resort openings, ad-spend indices, labor, housing and
+  rates, travel, fuel — read from the public API with a bundled snapshot
+  as the fallback. Hone never places orders.
+
+```bash
+python research/prediction/fetch_kalshi_snapshot.py   # refresh the bundled snapshot
+HONE_KALSHI_LIVE=0 python -m hone serve                 # serve the snapshot only
+```
+
+Theory, derivations, the catalog and the limitations are in
+[docs/PREDICTION_MARKETS.md](docs/PREDICTION_MARKETS.md).
 
 ## Accounts & saved portfolios (optional)
 
@@ -361,6 +402,7 @@ export ANTHROPIC_API_KEY=...   # without it, the offline parser is used
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.
 - [docs/CRYPTO_RESEARCH.md](docs/CRYPTO_RESEARCH.md) — Hone Crypto: literature, parameters, limitations.
+- [docs/PREDICTION_MARKETS.md](docs/PREDICTION_MARKETS.md) — Hone Markets: hedging cyclical income with Kalshi event contracts.
 
 ## Disclaimers
 

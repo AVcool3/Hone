@@ -40,6 +40,8 @@
     --accent-wash: rgba(42,120,214,0.10);
     --accent-crypto: #c74a1c;        /* 4.75:1 with white text */
     --accent-crypto-wash: rgba(199,74,28,0.10);
+    --accent-predict: #5b47b8;       /* 6.9:1 with white text */
+    --accent-predict-wash: rgba(91,71,184,0.10);
   }
   /* Crypto is a distinct product, so it carries a distinct accent. */
   :root[data-product="crypto"] {
@@ -47,6 +49,15 @@
     --accent-wash: var(--accent-crypto-wash);
     --ramp-lo: #f0a882;
     --ramp-hi: #6b2409;
+  }
+  /* Prediction markets is the third product, so it carries a third accent.
+     EDIT HERE to recolour the tab: --accent-predict needs 4.5:1 against
+     white, because it sits behind white button text. */
+  :root[data-product="prediction"] {
+    --series-1: var(--accent-predict);
+    --accent-wash: var(--accent-predict-wash);
+    --ramp-lo: #b7aaea;
+    --ramp-hi: #2b1f66;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -67,10 +78,16 @@
       --accent-wash: rgba(57,135,229,0.16);
       --accent-crypto: #c74a1c;
       --accent-crypto-wash: rgba(217,89,38,0.18);
+      --accent-predict: #6f5bd0;
+      --accent-predict-wash: rgba(111,91,208,0.20);
     }
     :root[data-product="crypto"] {
       --ramp-lo: #d95926;
       --ramp-hi: #7c2d10;
+    }
+    :root[data-product="prediction"] {
+      --ramp-lo: #6f5bd0;
+      --ramp-hi: #2b1f66;
     }
   }
   /* Two faces, no webfont: a book serif for anything that makes a claim,
@@ -321,23 +338,27 @@
     background: var(--page); border: 1px solid var(--border); border-radius: 999px;
     box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); }
   .product-tabs .thumb { position: absolute; top: 4px; bottom: 4px; left: 4px;
-    width: calc(50% - 4px); border-radius: 999px; background: var(--series-1);
+    width: calc(33.333% - 2.67px); border-radius: 999px; background: var(--series-1);
     box-shadow: 0 2px 6px rgba(0,0,0,0.18);
     transition: transform 0.28s cubic-bezier(0.4,0,0.2,1), background 0.28s ease; }
   .product-tabs[data-active="crypto"] .thumb { transform: translateX(100%);
     background: var(--accent-crypto); }
+  .product-tabs[data-active="prediction"] .thumb { transform: translateX(200%);
+    background: var(--accent-predict); }
+  /* three equal tabs: the thumb is a third of the nav, so every tab must be
+     exactly a third wide or it slides onto the wrong label */
   .product-tabs a { position: relative; z-index: 1; display: flex; align-items: center;
-    justify-content: center; gap: 8px; min-width: 148px; padding: 10px 20px;
+    justify-content: center; gap: 8px; flex: 0 0 208px; min-width: 0; padding: 10px 10px; white-space: nowrap;
     font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em;
     color: var(--ink-2); text-decoration: none; border-radius: 999px;
     transition: color 0.2s ease; }
   .product-tabs a.active { color: #fff; }
   .product-tabs a:not(.active):hover { color: var(--ink-1); }
   .product-tabs .badge { font-size: 10px; font-weight: 800; letter-spacing: 0.07em;
-    padding: 2px 6px; border-radius: 5px; background: var(--accent-crypto);
+    padding: 2px 6px; border-radius: 5px; background: var(--accent-predict);
     color: #fff; transition: opacity 0.2s ease; }
   .product-tabs a.active .badge { background: rgba(255,255,255,0.28); }
-  @media (max-width: 460px) {
+  @media (max-width: 700px) {
     .product-tabs a { min-width: 0; flex: 1; padding: 10px 12px; font-size: 13.5px; }
     .product-tabs { width: 100%; }
     .switcher-row { display: block; }
@@ -419,6 +440,94 @@
   svg .gridline { stroke: var(--grid); stroke-width: 1; }
   svg text.axis { fill: var(--ink-muted); font-size: 11px; }
 
+  /* ====================== prediction-markets product ======================
+     Everything below is used only on /prediction-markets. The sizing tool,
+     the market browser and the concepts page share these classes. */
+  .pm-diagram { margin: 14px 0 4px; }
+  .pm-diagram svg { width: 100%; height: auto; display: block; }
+  .pm-diagram text { font-family: var(--font-ui); fill: var(--ink-2); font-size: 12px; }
+  .pm-diagram text.big { font-size: 22px; fill: var(--ink-muted); }
+  .pm-diagram .cap { fill: var(--ink-1); font-weight: 600; font-size: 12.5px; }
+  .pm-diagram .axis { stroke: var(--baseline); stroke-width: 1; }
+  .pm-diagram .inc { fill: var(--series-2); }
+  .pm-diagram .con { fill: var(--series-1); }
+  .pm-diagram .tot { fill: var(--ink-2); }
+  /* concept cards: one idea each, with the formula set apart from the prose */
+  .concept { border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px;
+             margin-top: 14px; background: var(--page); }
+  .concept h3 { font-family: var(--font-display); font-size: 18px; font-weight: 600;
+                margin-bottom: 6px; letter-spacing: -0.005em; }
+  .concept p { color: var(--ink-2); font-size: 14.5px; margin-bottom: 8px; max-width: 66ch; }
+  .concept p:last-child { margin-bottom: 0; }
+  .concept .where { font-size: 12.5px; color: var(--ink-muted); margin-top: 8px;
+                    padding-top: 8px; border-top: 1px dashed var(--grid); }
+  .concept .where b { color: var(--series-1); font-weight: 650; }
+  .formula { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+             font-size: 13.5px; background: var(--surface-1); border: 1px solid var(--border);
+             border-radius: 8px; padding: 10px 12px; margin: 8px 0; color: var(--ink-1);
+             overflow-x: auto; white-space: nowrap; }
+  .formula small { color: var(--ink-muted); font-family: var(--font-ui); white-space: normal; }
+  /* the market browser */
+  .mkt-series { margin-top: 18px; }
+  .mkt-series .hd { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .mkt-series .hd b { font-size: 15px; }
+  .mkt-series .hd .tk { font-size: 11.5px; color: var(--ink-muted); font-family: ui-monospace, Menlo, monospace; }
+  .basis { font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+           border-radius: 5px; padding: 2px 7px; background: var(--accent-wash); color: var(--series-1); }
+  .basis.proxy { background: rgba(208,145,59,0.14); color: #a86a12; }
+  .basis.close { background: rgba(27,175,122,0.14); color: var(--good); }
+  .mkt-series .note { font-size: 13px; color: var(--ink-2); margin: 4px 0 6px; }
+  .mkt-series table { font-size: 13.5px; }
+  .mkt-series td button { padding: 5px 10px; min-height: 0; font-size: 12.5px; white-space: nowrap; }
+  .prob-bar { display: inline-block; width: 56px; height: 6px; border-radius: 3px;
+              background: var(--grid); vertical-align: middle; margin-right: 6px; position: relative; }
+  .prob-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--series-1); }
+  .src-line { font-size: 12.5px; color: var(--ink-muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .src-line .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; }
+  .src-line .dot.snap { background: #a86a12; }
+  /* the price strip on the sizing result: market price, fair value, ceiling */
+  .pstrip { position: relative; height: 126px; margin: 14px 0 4px; }
+  .pstrip .rail { position: absolute; left: 0; right: 0; top: 24px; height: 6px; border-radius: 3px;
+                  background: linear-gradient(to right, var(--ramp-lo), var(--ramp-hi)); opacity: 0.55; }
+  .pstrip .pin { position: absolute; top: 0; transform: translateX(-50%); text-align: center;
+                 font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+  .pstrip .pin::after { content: ""; display: block; width: 2px; height: 16px; margin: 2px auto 0;
+                        background: var(--ink-1); border-radius: 1px; }
+  .pstrip .pin.low { top: 36px; }
+  .pstrip .pin.low::after { display: none; }
+  .pstrip .pin.low::before { content: ""; display: block; width: 2px; height: 14px; margin: 0 auto 2px;
+                             background: var(--ink-1); border-radius: 1px; }
+  .pstrip .pin.low2 { top: 62px; }
+  .pstrip .pin.low2::after { display: none; }
+  .pstrip .pin.low2::before { content: ""; display: block; width: 2px; height: 36px; margin: 0 auto 2px;
+                              background: var(--ink-1); border-radius: 1px; opacity: 0.55; }
+  .pstrip .pin b { color: var(--ink-1); font-variant-numeric: tabular-nums; }
+  .preset-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0 14px; }
+  .preset-chips button { background: var(--surface-1); border: 1px solid var(--border); border-radius: 999px;
+    padding: 7px 13px; font: inherit; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+  .preset-chips button:hover, .preset-chips button.on { border-color: var(--series-1); color: var(--series-1); }
+  .range-row { display: flex; align-items: center; gap: 12px; }
+  .range-row input[type=range] { flex: 1; accent-color: var(--series-1); min-height: 0; }
+  .range-row .rv { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .side-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+  .side-toggle button { flex: 1; background: var(--surface-1); border: 0; padding: 10px 8px; font: inherit;
+    font-size: 14px; color: var(--ink-2); cursor: pointer; min-height: 44px; }
+  .side-toggle button.on { background: var(--series-1); color: #fff; font-weight: 650; }
+  .result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .verdict { font-family: var(--font-display); font-size: 24px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+  .verdict b { color: var(--series-1); }
+  .state-good { color: var(--good); } .state-bad { color: var(--critical); }
+  @media (max-width: 700px) {
+    .concept { padding: 14px 14px; }
+    .pstrip .pin { font-size: 10.5px; }
+  }
+  .product-tabs a .lbl-short { display: none; }
+  @media (max-width: 520px) {
+    /* three tabs on a phone: shorten the long label rather than wrapping it */
+    .product-tabs a .lbl-long { display: none; }
+    .product-tabs a .lbl-short { display: inline; }
+  }
+
   /* ======================= small screens =======================
      Most of this app is read on a phone. Before this block the only
      breakpoint in the file was for the product switcher, which is why
@@ -494,10 +603,11 @@
 <body>
 <div class="wrap">
   <div class="switcher-row">
-    <nav class="product-tabs" id="product-tabs" aria-label="Choose asset class">
+    <nav class="product-tabs" id="product-tabs" aria-label="Choose product">
       <span class="thumb" aria-hidden="true"></span>
       <a href="/" data-ac="equities">Stocks</a>
-      <a href="/crypto" data-ac="crypto">Crypto<span class="badge">NEW</span></a>
+      <a href="/crypto" data-ac="crypto">Crypto</a>
+      <a href="/prediction-markets" data-ac="prediction"><span class="lbl-long">Prediction markets</span><span class="lbl-short">Markets</span><span class="badge">NEW</span></a>
     </nav>
   </div>
   <div id="account-bar" class="account-bar" hidden></div>
@@ -615,6 +725,155 @@
     </section>
   </div>
   </main>
+  <!-- ================= prediction-markets landing (static) =================
+       The third product's start page. It lives in a <template> so crawlers
+       can read the copy from the raw HTML, while the equities landing above
+       stays the default. At boot, on /prediction-markets, the script swaps
+       this in before capturing START_HTML. EDIT HERE for landing copy. -->
+  <template id="landing-prediction">
+  <div class="card">
+    <h1 class="bighero">Your paycheck is already a position.</h1>
+    <p class="hero-sub">Hone Markets sizes the event contract that hedges the income risk you never chose.</p>
+    <p class="hero-support">If your season rises and falls with snowfall, ad budgets, hiring or mortgage
+    rates, you are holding a bet whether you like it or not. Kalshi lists contracts on exactly those
+    events. Hone measures how much of that risk you can actually carry, then sizes the contract that
+    offsets the rest — and shows you what the insurance is worth, in dollars, at your number.</p>
+    <div class="cta-row">
+      <a href="#/size"><button class="primary" id="pm-cta-size">Size my hedge →</button></a>
+      <a href="#/concepts"><button class="ghost">Understand the concepts</button></a>
+      <a href="#/markets"><button class="ghost">Browse the markets</button></a>
+    </div>
+    <p class="muted" style="margin-top:12px">No account, no orders placed. Hone sizes and explains; you decide.</p>
+
+    <section class="land">
+      <h2>Who carries this risk</h2>
+      <p class="sub">Anyone whose income is cyclical holds an exposure the stock market cannot see.</p>
+      <div class="cards3">
+        <div class="c"><h3>The Aspen ski instructor</h3><p>A thin December means fewer lessons and
+          smaller tips. Kalshi lists Aspen's monthly snowfall and the Colorado resorts' skier visits:
+          a contract that pays when the snow doesn't come is a hedge on the season.</p></div>
+        <div class="c"><h3>The ad-agency freelancer</h3><p>Ad budgets are the first thing cut in a
+          slowdown. Monthly ad-spend indices by category — streaming, gaming, retail — and the jobs
+          report are the markets that move with your bookings.</p></div>
+        <div class="c"><h3>The realtor, the recruiter, the driver</h3><p>Commissions move with
+          mortgage rates and home sales; placement fees with payrolls and layoffs; a driver's margin
+          with the gas price. Each has a contract that pays in the bad month.</p></div>
+      </div>
+    </section>
+
+    <section class="land">
+      <h2>The idea in one picture</h2>
+      <p class="sub">A hedge is a position whose payoff moves opposite to the one you already hold.</p>
+      <div class="pm-diagram" aria-label="Income falls in a thin season; the contract pays in a thin season; together the two seasons look alike">
+        <svg viewBox="0 0 760 210" role="img">
+          <!-- panel 1: income -->
+          <text class="cap" x="20" y="22">1 · Your income</text>
+          <line class="axis" x1="20" y1="170" x2="220" y2="170"/>
+          <rect class="inc" x="40" y="110" width="60" height="60" rx="3"/>
+          <rect class="inc" x="140" y="50" width="60" height="120" rx="3"/>
+          <text x="70" y="190" text-anchor="middle">thin season</text>
+          <text x="170" y="190" text-anchor="middle">good season</text>
+          <text class="big" x="245" y="120" text-anchor="middle">+</text>
+          <!-- panel 2: contract -->
+          <text class="cap" x="280" y="22">2 · The contract</text>
+          <line class="axis" x1="280" y1="170" x2="480" y2="170"/>
+          <rect class="con" x="300" y="110" width="60" height="60" rx="3"/>
+          <rect class="con" x="400" y="166" width="60" height="4" rx="2"/>
+          <text x="330" y="190" text-anchor="middle">pays $1 each</text>
+          <text x="430" y="190" text-anchor="middle">pays nothing</text>
+          <text class="big" x="505" y="120" text-anchor="middle">=</text>
+          <!-- panel 3: together -->
+          <text class="cap" x="540" y="22">3 · Together</text>
+          <line class="axis" x1="540" y1="170" x2="740" y2="170"/>
+          <rect class="tot" x="560" y="58" width="60" height="112" rx="3"/>
+          <rect class="tot" x="660" y="58" width="60" height="112" rx="3"/>
+          <text x="590" y="190" text-anchor="middle">thin season</text>
+          <text x="690" y="190" text-anchor="middle">good season</text>
+        </svg>
+      </div>
+      <p class="muted">The contract costs its price in both seasons — that is the premium — so the
+      flat line in panel 3 sits a little below the good season on the left. How much lower you
+      should let it sit is exactly what your risk number decides.</p>
+    </section>
+
+    <section class="land">
+      <h2>How it works</h2>
+      <div class="cards3">
+        <div class="c"><div class="num">STEP 1</div><h3>Measure your risk number</h3>
+          <p>The same eight adaptive questions as the stocks product place you in one of 50 tiers.
+          A hedge is insurance, and how much insurance you want — and how much you will pay above
+          fair value for it — is a function of that number alone.</p></div>
+        <div class="c"><div class="num">STEP 2</div><h3>Describe the exposure</h3>
+          <p>What you have to live on this season, what you lose if it goes badly, and which
+          Kalshi market resolves on that outcome. Add your own probability if you think the market
+          is wrong — your confidence decides how much it counts.</p></div>
+        <div class="c"><div class="num">STEP 3</div><h3>Get a position, in contracts</h3>
+          <p>Hone maximizes your expected utility — the same objective behind every portfolio it
+          builds — and returns how many contracts to buy, what they cost, what the hedge is worth to
+          you in dollars, and the most you should ever pay per contract.</p></div>
+      </div>
+    </section>
+
+    <section class="land">
+      <h2>What the output looks like</h2>
+      <div class="example-box" id="pm-example">
+        <div class="in">Input: <b>Aspen ski instructor, $38,000 to live on this season, $9,000 at risk if
+          December is thin</b>, hedged with the NO side of “Aspen December snowfall above 20 in” at 35¢ —
+          investor measured at Tier 26 of 50 (moderately risk-averse).</div>
+        <table>
+          <tr><th>Action</th><th>Position</th><th class="num">Cost</th><th>Why</th></tr>
+          <tr><td class="buy">BUY</td><td>7,407 NO contracts</td><td class="num">$2,710</td><td>pays $7,407 if December is thin — 82% of the loss, the rest given up to fees</td></tr>
+          <tr><td></td><td>Worth to you</td><td class="num">+$295</td><td>certainty-equivalent gain at your tier: a sure $295 for the risk removed</td></tr>
+          <tr><td></td><td>Your ceiling</td><td class="num">45¢</td><td>the most your risk aversion should pay per contract; above it, don't</td></tr>
+        </table>
+        <p class="muted" style="margin-top:8px">Illustrative — the Aspen December contract was not yet open when this was
+        written. Run the same example on live prices in the sizing tool.</p>
+      </div>
+    </section>
+
+    <section class="land">
+      <h2>Markets you could use</h2>
+      <p class="sub">A curated slice of Kalshi, grouped by the income it can hedge. Read from the public API,
+      no account needed.</p>
+      <div id="pm-markets-preview"><div class="spinner">Loading markets…</div></div>
+      <p style="margin-top:10px"><a class="link" href="#/markets">See every market in the catalog →</a></p>
+    </section>
+
+    <section class="land">
+      <h2>Built to be trusted, not just believed</h2>
+      <div class="trust-grid">
+        <details class="faq t"><summary>Isn't this just gambling?</summary><p>A bet adds a risk you did not have. A hedge removes one you already carry. The sizing tool separates the two explicitly: the part of the position that offsets your income is the hedge, and anything beyond it is a bet on your own belief — labelled as such, and shrunk by your risk number.</p></details>
+        <details class="faq t"><summary>Does Hone trade for me?</summary><p>No. Hone holds no Kalshi credentials and places no orders. It reads public market prices, sizes the position, and explains it. You decide whether to act, on Kalshi, yourself.</p></details>
+        <details class="faq t"><summary>What is Kalshi, and is it legal?</summary><p>Kalshi is a US exchange for event contracts regulated by the Commodity Futures Trading Commission. Availability and the legal status of some contract types vary by state and have been contested; check what applies where you live before trading.</p></details>
+        <details class="faq t"><summary>What's the catch?</summary><p>Basis risk. The contract resolves on a weather station or a government statistic; your income depends on visitors and bookings. The two are correlated, not identical, and the tool makes you say how tightly before it sizes anything. Thin markets with wide spreads are the second catch, and the catalog shows the spread.</p></details>
+        <details class="faq t"><summary>What about taxes and fees?</summary><p>Kalshi charges a fee that is largest on coin-flip prices, modelled in every number shown. Gains on event contracts are taxable; Hone is decision support, not tax or investment advice.</p></details>
+        <details class="faq t"><summary>How does the math work?</summary><p>The same expected-utility framework as the rest of Hone — constant relative risk aversion, your measured γ, certainty equivalents — pointed at a binary payoff. Every formula is on <a class="link" href="#/concepts">the concepts page</a>, with a worked example.</p></details>
+      </div>
+    </section>
+
+    <section class="land" id="start-section">
+      <h2>Start now</h2>
+      <p class="sub">The sizing tool needs your risk number. Eight questions get it; or bring the one you
+      already measured.</p>
+      <div id="account-section"></div>
+      <div class="navrow">
+        <span id="pm-gamma-shortcut"></span>
+        <button class="primary" id="next-btn">Measure my risk number →</button>
+      </div>
+      <details class="settings" id="advanced-start" style="margin-top:18px">
+        <summary>I already know my risk number</summary>
+        <div style="margin-top:14px">
+          <div class="row">
+            <label class="field" style="max-width:260px"><span>Your risk-aversion parameter (γ)</span>
+              <input type="number" id="pm-gamma-typed" step="0.05" placeholder="e.g. 1.5" inputmode="decimal"></label>
+            <button class="ghost" id="pm-use-typed">Use it and size a hedge</button>
+          </div>
+          <div class="muted">Around 0 is risk-neutral, 1–2 is typical, above 3 is highly risk-averse.</div>
+        </div>
+      </details>
+    </section>
+  </div>
+  </template>
   <footer>
     Hone is decision support for paper trading — it is not investment advice, and it never touches
     real money. Estimates come from models; option costs shown are indicative, not executable quotes.
@@ -645,18 +904,36 @@ const round2 = (x) => Math.round(x * 100) / 100;
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const STEPS = ["start", "quiz", "profile", "portfolio", "views", "optimize", "hedge", "done"];
+/* Which product this page is: "/" = equities, "/crypto" = crypto,
+   "/prediction-markets" = prediction markets. A function declaration so it
+   is hoisted and usable by STATE_KEY below before the consts are reached. */
+function productFromPath() {
+  const path = location.pathname.replace(/\/+$/, "");
+  if (path.endsWith("/crypto")) return "crypto";
+  if (path.endsWith("/prediction-markets")) return "prediction";
+  return "equities";
+}
+const ASSET_CLASS = productFromPath();
+const BASE_PATH = ASSET_CLASS === "crypto" ? "/crypto" : (ASSET_CLASS === "prediction" ? "/prediction-markets" : "");
+
+/* The stocks and crypto products share one linear flow. The prediction
+   product reuses its first three steps (start, questionnaire, profile) and
+   then goes straight to the sizing tool — there is no portfolio to load. */
+const STEPS = ASSET_CLASS === "prediction"
+  ? ["start", "quiz", "profile", "size"]
+  : ["start", "quiz", "profile", "portfolio", "views", "optimize", "hedge", "done"];
 const STEP_LABELS = {start:"Start", quiz:"Questionnaire", profile:"Your profile", portfolio:"Portfolio",
-                     views:"Your views", optimize:"Rebalance", hedge:"Hedge", done:"Summary"};
+                     views:"Your views", optimize:"Rebalance", hedge:"Hedge", done:"Summary",
+                     size:"Size the hedge"};
 /* standalone pages outside the linear flow (no progress bar) */
-const ASIDE_PAGES = ["tutorial", "analytics", "signup", "journal", "tails", "flexible"];
+const ASIDE_PAGES = ["tutorial", "analytics", "signup", "journal", "tails", "flexible",
+                     "markets", "concepts"];
 
 /* STATE_KEY must be defined before the first load() call: it is a `const`,
    so calling load() above this line throws a temporal-dead-zone
    ReferenceError that load()'s own catch swallows — which silently returned
    an empty state on every page load and wiped the user's progress. */
-const STATE_KEY = () => "hone-state:" +
-  (location.pathname.replace(/\/+$/, "").endsWith("/crypto") ? "crypto" : "equities");
+const STATE_KEY = () => "hone-state:" + productFromPath();
 function load() {
   try { return JSON.parse(localStorage.getItem(STATE_KEY())) || {}; }
   catch { return {}; }
@@ -668,10 +945,7 @@ function resetAll() { S = {}; save(); RUNTIME = {}; go("start"); }
 /* results too large / transient for localStorage live here */
 let RUNTIME = {};
 
-/* Which product this page is: "/" = equities, "/crypto" = crypto. */
-const ASSET_CLASS = location.pathname.replace(/\/+$/, "").endsWith("/crypto")
-  ? "crypto" : "equities";
-const BASE_PATH = ASSET_CLASS === "crypto" ? "/crypto" : "";
+/* ASSET_CLASS and BASE_PATH are defined above, next to STEPS. */
 function apiUrl(path) {
   return path + (path.includes("?") ? "&" : "?") + "asset_class=" + ASSET_CLASS;
 }
@@ -968,6 +1242,7 @@ function bindStartAccount() {
    hydrates the interactive pieces. */
 PAGES.start = () => {
   $id("page").innerHTML = START_HTML;
+  if (ASSET_CLASS === "prediction") { pmHydrateStart(); return; }
   const demo = S.demo !== false;
   $id("demo-mode").checked = demo;
   $id("cred-row").style.opacity = demo ? 0.45 : 1;
@@ -1209,10 +1484,12 @@ PAGES.profile = () => {
       : (consistent
         ? "Your choices were internally consistent — the estimate is sharp."
         : "Some rounds had multiple switch points; the noise parameter μ absorbs that inconsistency.")}
-      Next: let's see how the portfolio you <i>actually hold</i> compares to this number.</div>
-    ${navRow("quiz", "See my portfolio →")}
+      ${ASSET_CLASS === "prediction"
+        ? "Next: describe the income you have at risk, and see how much of it this number says to insure."
+        : "Next: let's see how the portfolio you <i>actually hold</i> compares to this number."}</div>
+    ${navRow("quiz", ASSET_CLASS === "prediction" ? "Size my hedge →" : "See my portfolio →")}
   </div>`;
-  $id("next-btn").onclick = () => go("portfolio");
+  $id("next-btn").onclick = () => go(ASSET_CLASS === "prediction" ? "size" : "portfolio");
 };
 
 /* ----------------------------- 4. portfolio ------------------------------ */
@@ -2004,6 +2281,21 @@ async function applyAssetClass() {
   });
   $id("product-tabs").dataset.active = ASSET_CLASS;
   document.documentElement.dataset.product = ASSET_CLASS;
+  if (ASSET_CLASS === "prediction") {
+    /* The third product has its own landing page (a <template> in the static
+       HTML, so crawlers can read it). Swap it in before START_HTML is
+       captured at boot; the copy below does not depend on the server. */
+    const tpl = $id("landing-prediction");
+    if (tpl) $id("page").innerHTML = tpl.innerHTML;
+    document.title = "Hone Markets — Hedge the income risk you already carry | Prediction markets, sized to your number";
+    const md = document.querySelector('meta[name="description"]');
+    if (md) md.content = "If your income rises and falls with snowfall, ad budgets or hiring, you already hold a position. Hone Markets measures your risk aversion and sizes the Kalshi event contract that hedges it — in contracts, in dollars, with the insurance premium made explicit.";
+    document.querySelectorAll(".brand").forEach(b => b.textContent = "Hone Markets");
+    const f = document.querySelector("footer");
+    if (f) f.innerHTML = "Hone Markets is decision support — not investment, tax or legal advice. It reads public " +
+      "Kalshi prices, sizes a position and explains it; it holds no account and places no orders. Fees are modelled " +
+      "from the published schedule and may change; event-contract availability varies by state.";
+  }
   try { CFG = await api("/api/config"); } catch { return; }
   if (!CFG || CFG.asset_class !== "crypto") return;
   const c = CFG.copy;
@@ -2672,6 +2964,667 @@ function renderJournal(r) {
     if (!confirm("Delete every logged prediction? This cannot be undone.")) return;
     journalSave([]); S.calibration = null; save(); loadJournal();
   };
+}
+
+/* ======================= prediction-markets product ======================= */
+/* Everything from here to "layout guards" runs only on /prediction-markets.
+   The product reuses the questionnaire (γ), the tier gauge and the formatting
+   helpers above; what is new is the sizing tool (PAGES.size), the market
+   browser (PAGES.markets) and the long-form concepts page (PAGES.concepts).
+   Server side: hone/prediction/*.py and the /api/predict/* endpoints.
+
+   If you are used to React: each PAGES.x function below is the equivalent of
+   a page component — it builds an HTML string, assigns it to #page, then
+   wires event handlers by id. State lives in S (persisted, see save()) and
+   RUNTIME (per visit). There is no diffing; a page re-renders by calling its
+   function again. */
+
+/* ---- EDIT HERE: scenario presets shown as chips on the sizing tool. -------
+   `side` is the contract side that pays when the bad outcome happens; `basis`
+   is how tightly that market tracks the preset's income (1 = exactly). The
+   first preset doubles as the worked example on the landing and concepts
+   pages, so change those numbers together. ----------------------------------*/
+const PM_PRESETS = [
+  { key: "aspen", label: "Aspen ski instructor", wealth: 38000, loss: 9000, side: "no",
+    price: 0.35, marketProb: 0.35, basis: 0.9, seriesHint: "KXASPSNOWM",
+    marketTitle: "Aspen December snowfall above 20 in",
+    story: "A thin December means fewer lessons and smaller tips: about $9,000 less on a $38,000 season. The NO side of “snowfall above 20 inches” pays exactly when that happens." },
+  { key: "ads", label: "Ad-agency freelancer", wealth: 60000, loss: 15000, side: "no",
+    price: 0.40, marketProb: 0.40, basis: 0.7, seriesHint: "KXSTREAMINGADS",
+    marketTitle: "Streaming ad-spend index above its threshold",
+    story: "Half your bookings come from streaming launches. A soft quarter for the category costs roughly $15,000 of a $60,000 year. The ad-spend index tracks the budgets, not your clients — so the basis is loose." },
+  { key: "recruit", label: "Recruiter on commission", wealth: 90000, loss: 25000, side: "yes",
+    price: 0.30, marketProb: 0.30, basis: 0.5, seriesHint: "KXU3",
+    marketTitle: "Unemployment rate above its threshold",
+    story: "Placement fees dry up when companies stop hiring. The unemployment rate is the broadest, most liquid labor-market contract — and a loose proxy for one recruiter's niche." },
+  { key: "orlando", label: "Orlando hotel server", wealth: 34000, loss: 6000, side: "no",
+    price: 0.34, marketProb: 0.34, basis: 0.8, seriesHint: "KXORLHOTELDEMAND",
+    marketTitle: "Orlando hotel room nights above 34.5 million",
+    story: "Tips scale with occupancy. The annual room-night contract resolves on the whole metro, which is close to — but not — your hotel." },
+  { key: "driver", label: "Rideshare driver", wealth: 45000, loss: 4000, side: "yes",
+    price: 0.25, marketProb: 0.25, basis: 0.9, seriesHint: "KXAAAGASM",
+    marketTitle: "US average gas price above its threshold",
+    story: "An expense hedge: the bad outcome is a high gas price, so the YES side is the one that pays you back." },
+];
+
+const fmtCents = (p) => `${Math.round(p * 100)}¢`;
+const fmtN = (n) => Math.round(Math.abs(n)).toLocaleString();
+
+/* ---- where the user's γ comes from ---------------------------------------
+   Each product keeps its own saved state, so someone who answered the
+   questionnaire on the Stocks tab arrives here without a γ. Look in the
+   other products' state before asking them to answer again. */
+function pmOtherProductGamma() {
+  for (const k of ["equities", "crypto"]) {
+    try {
+      const st = JSON.parse(localStorage.getItem("hone-state:" + k)) || {};
+      if (typeof st.gamma === "number") return { gamma: st.gamma, product: k === "crypto" ? "Crypto" : "Stocks" };
+    } catch {}
+  }
+  return null;
+}
+function pmGamma() {
+  if (typeof S.gamma === "number") return { gamma: S.gamma, source: S.profile ? "questionnaire" : "typed" };
+  const other = pmOtherProductGamma();
+  if (other) return { gamma: other.gamma, source: `your ${other.product} tab` };
+  return { gamma: 1.5, source: "default (Tier 26) — measure yours for a real answer" };
+}
+
+/* ---- the market catalog ----------------------------------------------------
+   One fetch per visit. The server answers at once with its bundled snapshot
+   and refreshes from Kalshi in the background, so a second call a few
+   seconds later may come back "live". */
+async function pmCatalog(force = false) {
+  if (RUNTIME.pmCatalog && !force) return RUNTIME.pmCatalog;
+  RUNTIME.pmCatalog = await api("/api/predict/markets");
+  RUNTIME.pmIndex = {};
+  RUNTIME.pmCatalog.industries.forEach(ind => ind.series.forEach(se => se.markets.forEach(m => {
+    RUNTIME.pmIndex[m.ticker] = { industry: ind, series: se, market: m };
+  })));
+  return RUNTIME.pmCatalog;
+}
+/* The price a hedger would pay for one side, read off the book. YES is
+   bought at the yes ask; NO at the no ask. An ask of $1.00 or a missing
+   ask means nobody is offering — fall back to the midpoint and say so. */
+function pmSideQuote(m, side) {
+  const implied = m.implied;
+  if (side === "yes") {
+    const ask = (m.yes_ask != null && m.yes_ask < 1) ? m.yes_ask : null;
+    return { price: ask ?? implied, marketProb: implied, empty: ask == null };
+  }
+  const ask = (m.no_ask != null && m.no_ask < 1) ? m.no_ask : null;
+  const mp = implied == null ? null : 1 - implied;
+  return { price: ask ?? mp, marketProb: mp, empty: ask == null };
+}
+function pmSourceLine(cat) {
+  const live = (cat.source || "").startsWith("live");
+  const when = cat.as_of ? new Date(cat.as_of).toLocaleString() : "unknown time";
+  return `<div class="src-line"><span class="dot${live ? "" : " snap"}"></span>
+    ${live ? `Live from Kalshi's public API, fetched ${esc(when)}` :
+      `Bundled snapshot from ${esc(when)} — live prices load in the background; reload in a few seconds`}
+    · Hone holds no Kalshi account and places no orders.</div>`;
+}
+function pmProbCell(p) {
+  if (p == null) return `<span class="muted">no quotes</span>`;
+  return `<span class="prob-bar"><i style="width:${Math.round(p * 100)}%"></i></span>${Math.round(p * 100)}%`;
+}
+function pmCloseDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso); return isNaN(d) ? "—" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "2-digit" });
+}
+function pmBasisTag(b) {
+  return `<span class="basis ${esc(b)}">${b === "direct" ? "direct hedge" : (b === "close" ? "close proxy" : "loose proxy")}</span>`;
+}
+
+/* ---- start page ------------------------------------------------------------
+   The landing markup comes from <template id="landing-prediction">; this
+   wires its buttons and fills the live-markets preview. */
+function pmHydrateStart() {
+  $id("account-section").innerHTML = startAccountHTML();
+  bindStartAccount();
+  $id("next-btn").onclick = () => go("quiz");
+  const g = pmGamma();
+  const sc = $id("pm-gamma-shortcut");
+  if (typeof S.gamma === "number") {
+    sc.innerHTML = `<button class="ghost" id="pm-go-size">Size a hedge with my risk number (${S.gamma.toFixed(2)})</button>`;
+    $id("pm-go-size").onclick = () => go("size");
+  } else if (g.source.startsWith("your ")) {
+    sc.innerHTML = `<button class="ghost" id="pm-adopt">Use the ${g.gamma.toFixed(2)} from ${esc(g.source.replace("your ", "my "))}</button>`;
+    $id("pm-adopt").onclick = () => { S.gamma = g.gamma; S.profile = null; save(); go("size"); };
+  }
+  $id("pm-use-typed").onclick = () => {
+    const v = parseFloat($id("pm-gamma-typed").value);
+    if (isNaN(v)) { $id("pm-gamma-typed").focus(); return; }
+    S.gamma = v; S.profile = null; save(); go("size");
+  };
+  pmCatalog().then(cat => {
+    const box = $id("pm-markets-preview"); if (!box) return;
+    /* one headline market per industry: the most-traded contract with a quote */
+    const rows = cat.industries.map(ind => {
+      const all = ind.series.flatMap(se => se.markets.map(m => ({ se, m })));
+      const best = all.filter(x => x.m.implied != null).sort((a, b) => b.m.volume - a.m.volume)[0];
+      if (!best) return `<tr><td>${esc(ind.label)}</td><td colspan="3" class="muted">no open contracts in the catalog right now</td></tr>`;
+      return `<tr><td>${esc(ind.label)}</td><td>${esc(best.se.title)}<br><span class="muted">${esc(best.m.label || best.m.title)}</span></td>
+        <td class="num">${pmProbCell(best.m.implied)}</td>
+        <td><button class="ghost" style="padding:5px 10px;min-height:0;font-size:12.5px" data-hedge="${esc(best.m.ticker)}">Hedge with this</button></td></tr>`;
+    }).join("");
+    box.innerHTML = `<table><tr><th>Who</th><th>Most-traded contract</th><th class="num">Market says</th><th></th></tr>${rows}</table>
+      <div style="margin-top:8px">${pmSourceLine(cat)}</div>`;
+    box.querySelectorAll("[data-hedge]").forEach(b => b.onclick = () => pmPickMarket(b.dataset.hedge));
+  }).catch(e => { const box = $id("pm-markets-preview"); if (box) box.innerHTML = `<div class="error">${esc(e.message)}</div>`; });
+}
+/* Remember a market chosen anywhere on the site, then open the tool on it.
+   The side defaults to the catalog's `bad_side` hint. */
+function pmPickMarket(ticker) {
+  const hit = RUNTIME.pmIndex && RUNTIME.pmIndex[ticker];
+  S.pm = Object.assign({}, S.pm || {}, { marketTicker: ticker,
+    side: hit && /^NO/i.test(hit.series.bad_side) ? "no" : "yes", preset: null });
+  save(); go("size");
+}
+
+/* ---- markets page ----------------------------------------------------------
+   Every curated series, every open contract, with the two asks, the implied
+   probability and the spread — because the spread is where a thin weather
+   market quietly doubles the cost of a hedge. */
+PAGES.markets = () => {
+  $id("page").innerHTML = `<div class="card">
+    <h1>Markets that move with a paycheck</h1>
+    <p class="lead">A curated slice of Kalshi, grouped by the income each market can hedge. For every
+    contract: what the market thinks, what each side costs to buy right now, and how wide the gap
+    between buyers and sellers is. <b>Direct</b> means the contract resolves on the thing that pays
+    you; <b>proxy</b> means it merely moves with it — and the sizing tool will ask how tightly.</p>
+    <div id="mk-body"><div class="spinner">Loading the catalog…</div></div>
+    <div class="navrow"><button class="ghost" onclick="go('start')">&larr; Back to start</button>
+      <button class="primary" onclick="go('size')">Size a hedge →</button></div>
+  </div>`;
+  pmCatalog().then(cat => {
+    $id("mk-body").innerHTML = pmSourceLine(cat) + cat.industries.map(ind => `
+      <h2>${esc(ind.label)}</h2>
+      <p class="muted" style="margin-bottom:4px">${esc(ind.who)}</p>
+      ${ind.series.map(se => pmSeriesHTML(se)).join("")}`).join("");
+    $id("mk-body").querySelectorAll("[data-hedge]").forEach(b => b.onclick = () => pmPickMarket(b.dataset.hedge));
+  }).catch(e => { $id("mk-body").innerHTML = `<div class="error">${esc(e.message)}</div>`; });
+};
+function pmSeriesHTML(se) {
+  const head = `<div class="hd"><b>${esc(se.title)}</b>${pmBasisTag(se.basis)}<span class="tk">${esc(se.ticker)}</span></div>
+    ${se.note ? `<div class="note" style="margin:4px 0 6px;padding:0;background:none">${esc(se.note)} <span class="muted">Hedge side: ${esc(se.bad_side)}.</span></div>`
+              : `<div class="note" style="margin:4px 0 6px;padding:0;background:none"><span class="muted">Hedge side: ${esc(se.bad_side)}.</span></div>`}`;
+  if (!se.markets.length) return `<div class="mkt-series">${head}<div class="muted">Listed on Kalshi; no contracts open right now (seasonal series list as the season approaches).</div></div>`;
+  const rows = se.markets.map(m => {
+    const spread = m.spread == null ? `<span class="muted">—</span>` : `${Math.round(m.spread * 100)}¢${m.spread >= 0.2 ? ` <span class="flag warn">wide</span>` : ""}`;
+    const yes = (m.yes_ask != null && m.yes_ask < 1) ? fmtCents(m.yes_ask) : `<span class="muted">none</span>`;
+    const no = (m.no_ask != null && m.no_ask < 1) ? fmtCents(m.no_ask) : `<span class="muted">none</span>`;
+    return `<tr><td>${esc(m.label || m.title)}</td><td class="num">${pmProbCell(m.implied)}</td>
+      <td class="num">${yes}</td><td class="num">${no}</td><td class="num">${spread}</td>
+      <td class="num">${fmtN(m.volume)}</td><td>${pmCloseDate(m.close_time)}</td>
+      <td><button class="ghost" data-hedge="${esc(m.ticker)}">Hedge</button></td></tr>`;
+  }).join("");
+  return `<div class="mkt-series">${head}
+    <table><tr><th>Contract</th><th class="num">Market says</th><th class="num">Buy YES</th><th class="num">Buy NO</th>
+      <th class="num">Spread</th><th class="num">Volume</th><th>Closes</th><th></th></tr>${rows}</table></div>`;
+}
+
+/* ---- the sizing tool -------------------------------------------------------
+   Inputs on top, result below, same page: every change is one click from a
+   new answer. S.pm persists the form so a reload keeps the scenario. */
+PAGES.size = () => {
+  const g = pmGamma();
+  const pm = S.pm || {};
+  const preset = PM_PRESETS.find(p => p.key === pm.preset) || (pm.marketTicker ? null : PM_PRESETS[0]);
+  const v = Object.assign({}, preset || {}, pm);
+  const side = v.side || "no";
+  $id("page").innerHTML = `<div class="card">
+    <h1>Size a hedge to your number</h1>
+    <p class="lead">Describe the income at risk, pick the contract that pays when it goes badly, and
+    Hone returns the position your risk aversion implies — split into the part that is insurance
+    and the part that is a bet.</p>
+
+    <div class="muted" style="margin-bottom:6px">Start from a scenario, or describe your own:</div>
+    <div class="preset-chips">${PM_PRESETS.map(p =>
+      `<button class="${preset && preset.key === p.key ? "on" : ""}" data-preset="${p.key}">${esc(p.label)}</button>`).join("")}</div>
+    <p class="muted" id="pm-story" style="margin:-6px 0 14px">${esc(v.story || "")}</p>
+
+    <h2>1 · The market</h2>
+    <label class="field"><span>Kalshi contract (from the catalog; prices are the current asks)</span>
+      <select id="pm-market"><option value="">Loading the catalog…</option></select></label>
+    <div class="row">
+      <label class="field" style="flex:1.4"><span>The bad outcome for me is when this resolves…</span>
+        <div class="side-toggle" id="pm-side">
+          <button type="button" data-side="yes" class="${side === "yes" ? "on" : ""}">YES</button>
+          <button type="button" data-side="no" class="${side === "no" ? "on" : ""}">NO</button>
+        </div></label>
+      <label class="field"><span>Price of that side, ¢</span>
+        <input type="number" id="pm-price" min="1" max="99" step="1" value="${Math.round((v.price ?? 0.35) * 100)}" inputmode="numeric"></label>
+      <label class="field"><span>Market's probability, %</span>
+        <input type="number" id="pm-mprob" min="1" max="99" step="1" value="${Math.round((v.marketProb ?? v.price ?? 0.35) * 100)}" inputmode="numeric"></label>
+    </div>
+    <div class="muted" id="pm-quote-note" style="margin:-4px 0 10px"></div>
+
+    <h2>2 · Your exposure</h2>
+    <div class="row">
+      <label class="field"><span>Money to live on over this horizon, $</span>
+        <input type="number" id="pm-wealth" min="1" step="100" value="${v.wealth ?? 38000}" inputmode="numeric"></label>
+      <label class="field"><span>What you lose if it goes badly, $</span>
+        <input type="number" id="pm-loss" min="0" step="100" value="${v.loss ?? 9000}" inputmode="numeric"></label>
+    </div>
+    <div class="muted" style="margin:-4px 0 12px">“Money to live on” is what you expect to earn over the period plus the
+      savings a bad season would eat into. It is the denominator of every risk calculation: the same loss is a
+      catastrophe on $12,000 and an annoyance on $200,000.</div>
+    <label class="field"><span>How tightly does this market track <i>your</i> loss? <span id="pm-basis-word"></span></span>
+      <div class="range-row"><input type="range" id="pm-basis" min="0" max="100" step="5" value="${Math.round((v.basis ?? 0.9) * 100)}">
+        <span class="rv" id="pm-basis-v"></span></div></label>
+
+    <h2>3 · Your view (optional)</h2>
+    <div class="row">
+      <label class="field"><span>Your own probability of the bad outcome, % (blank = trust the market)</span>
+        <input type="number" id="pm-own" min="0" max="100" step="1" value="${v.own ?? ""}" placeholder="e.g. 45" inputmode="numeric"></label>
+      <label class="field"><span>How sure are you of that view? <span id="pm-conf-v" class="rv"></span></span>
+        <div class="range-row" style="margin-top:12px"><input type="range" id="pm-conf" min="0" max="100" step="5" value="${v.conf ?? 50}"></div></label>
+    </div>
+    <div class="muted" style="margin:-4px 0 12px">The market price is the prior; your number is the view; your confidence
+      decides how far the blend moves — Black-Litterman, in one line. ${S.calibration && S.calibration.actionable && S.useCalibration !== false
+        ? `Your <a class="link" href="#/journal">journal</a> has scored enough predictions that its correction is applied to this confidence.` : ""}</div>
+
+    <details class="settings" style="margin-top:6px">
+      <summary>Advanced: risk number and fees</summary>
+      <div class="row" style="margin-top:12px">
+        <label class="field" style="max-width:260px"><span>Your risk number (γ) — from ${esc(g.source)}</span>
+          <input type="number" id="pm-gamma" step="0.05" value="${g.gamma.toFixed(2)}" inputmode="decimal"></label>
+        <label class="field" style="display:flex;align-items:center;gap:8px;align-self:flex-end;margin-bottom:12px">
+          <input type="checkbox" id="pm-fees" ${v.fees === false ? "" : "checked"} style="width:auto;min-height:0">
+          Include Kalshi's taker fee (0.07 × P × (1−P) per contract)</label>
+      </div>
+      <div class="muted">${typeof S.gamma === "number" ? `Measured ${S.profile ? "by the questionnaire" : "or typed"} on this tab.`
+        : `No measurement on this tab yet — <a class="link" href="#/quiz">eight questions</a> replace the guess.`}</div>
+    </details>
+    <div id="pm-err"></div>
+    <div class="navrow"><button class="ghost" onclick="go('start')">&larr; Back</button>
+      <button class="primary" id="pm-run">Size my hedge →</button></div>
+    <div id="pm-out"></div>
+  </div>`;
+
+  /* -- wiring ------------------------------------------------------------ */
+  const basisWords = (b) => b >= 0.95 ? "it resolves on exactly what pays me" : b >= 0.75 ? "same cause, different measurement"
+    : b >= 0.5 ? "related, with a lot left over" : b >= 0.25 ? "loosely related" : "barely related — this is mostly a bet";
+  const refreshRanges = () => {
+    const b = parseInt($id("pm-basis").value) / 100;
+    $id("pm-basis-v").textContent = b.toFixed(2);
+    $id("pm-basis-word").textContent = `— ${basisWords(b)}`;
+    $id("pm-conf-v").textContent = $id("pm-conf").value + "%";
+  };
+  $id("pm-basis").oninput = refreshRanges; $id("pm-conf").oninput = refreshRanges; refreshRanges();
+
+  let currentSide = side;
+  const setSide = (s) => {
+    currentSide = s;
+    $id("pm-side").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.side === s));
+    fillQuote();
+  };
+  $id("pm-side").querySelectorAll("button").forEach(b => b.onclick = () => setSide(b.dataset.side));
+
+  /* when a catalog market is selected, its asks fill the price fields */
+  const fillQuote = () => {
+    const t = $id("pm-market").value;
+    const hit = t && RUNTIME.pmIndex && RUNTIME.pmIndex[t];
+    const note = $id("pm-quote-note");
+    if (!hit) { note.textContent = t === "" ? "Custom market: type the price and the market's probability yourself." : ""; return; }
+    const q = pmSideQuote(hit.market, currentSide);
+    if (q.price == null) { note.innerHTML = `<span class="flag warn">no quotes</span> This book is empty — type a price you could realistically get.`; return; }
+    $id("pm-price").value = Math.round(q.price * 100);
+    $id("pm-mprob").value = Math.round(q.marketProb * 100);
+    note.innerHTML = `${esc(hit.series.title)} · ${esc(hit.market.label || hit.market.title)} · closes ${pmCloseDate(hit.market.close_time)}`
+      + (q.empty ? ` · <span class="flag warn">no ask on this side</span> midpoint used — you may not get filled at this price` : "")
+      + (hit.market.spread != null && hit.market.spread >= 0.2 ? ` · <span class="flag warn">wide spread (${Math.round(hit.market.spread * 100)}¢)</span>` : "")
+      + ` · ${pmBasisTag(hit.series.basis)}`;
+  };
+  pmCatalog().then(cat => {
+    const sel = $id("pm-market"); if (!sel) return;
+    sel.innerHTML = `<option value="">Custom / not on the list</option>` + cat.industries.map(ind => `<optgroup label="${esc(ind.label)}">${
+      ind.series.flatMap(se => se.markets.filter(m => m.implied != null).map(m =>
+        `<option value="${esc(m.ticker)}">${esc(se.title)} — ${esc(m.label || m.title)} (YES ${m.yes_ask != null && m.yes_ask < 1 ? fmtCents(m.yes_ask) : "—"} / NO ${m.no_ask != null && m.no_ask < 1 ? fmtCents(m.no_ask) : "—"})</option>`)).join("")}</optgroup>`).join("");
+    if (v.marketTicker && RUNTIME.pmIndex[v.marketTicker]) { sel.value = v.marketTicker; fillQuote(); }
+    else if (preset && preset.seriesHint) {
+      /* a preset names a series; pick its most-traded quoted contract if one is open */
+      const hit = Object.values(RUNTIME.pmIndex).filter(x => x.series.ticker === preset.seriesHint && x.market.implied != null)
+        .sort((a, b) => b.market.volume - a.market.volume)[0];
+      if (hit) { sel.value = hit.market.ticker; fillQuote(); }
+      else $id("pm-quote-note").innerHTML = `<span class="flag warn">not open yet</span> ${esc(preset.marketTitle)} — illustrative price shown; the series lists on Kalshi as the season approaches.`;
+    }
+    sel.onchange = fillQuote;
+  }).catch(() => { $id("pm-market").innerHTML = `<option value="">Catalog unavailable — enter a custom market</option>`; });
+
+  document.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
+    S.pm = { preset: b.dataset.preset }; save(); PAGES.size();
+  });
+  $id("pm-run").onclick = () => pmRunHedge(currentSide, preset);
+  if (RUNTIME.pmPlan && RUNTIME.pmPlanKey === JSON.stringify(S.pm)) pmRenderPlan(RUNTIME.pmPlan);
+};
+
+function pmReadForm(side) {
+  const num = (id) => parseFloat($id(id).value);
+  const own = $id("pm-own").value.trim() === "" ? null : num("pm-own") / 100;
+  return {
+    gamma: num("pm-gamma"),
+    wealth: num("pm-wealth"), loss: num("pm-loss"),
+    price: num("pm-price") / 100, market_prob: num("pm-mprob") / 100,
+    own_prob: own, confidence: own == null ? 0 : num("pm-conf") / 100,
+    basis_correlation: num("pm-basis") / 100,
+    include_fees: $id("pm-fees").checked,
+    market_ticker: $id("pm-market").value || null, side,
+  };
+}
+async function pmRunHedge(side, preset) {
+  const f = pmReadForm(side);
+  const bad = [];
+  if (!(f.wealth > 0)) bad.push("money to live on must be positive");
+  if (!(f.loss >= 0)) bad.push("the loss cannot be negative");
+  if (!(f.price > 0 && f.price < 1)) bad.push("the price must be between 1¢ and 99¢");
+  if (!(f.market_prob > 0 && f.market_prob < 1)) bad.push("the market's probability must be between 1% and 99%");
+  if (isNaN(f.gamma)) bad.push("the risk number is missing");
+  if (bad.length) { $id("pm-err").innerHTML = `<div class="error">${bad.map(esc).join(" · ")}</div>`; return; }
+  /* persist the scenario so a reload lands on the same question */
+  S.pm = { preset: preset ? preset.key : null, marketTicker: f.market_ticker, side, price: f.price, marketProb: f.market_prob,
+    wealth: f.wealth, loss: f.loss, own: f.own_prob == null ? "" : Math.round(f.own_prob * 100),
+    conf: Math.round(f.confidence * 100), basis: f.basis_correlation, fees: f.include_fees,
+    story: preset ? preset.story : "", marketTitle: (!f.market_ticker && preset) ? preset.marketTitle : "" };
+  S.gamma = f.gamma; save();
+  if (S.calibration && S.calibration.actionable && S.useCalibration !== false) f.calibration = S.calibration;
+  $id("pm-err").innerHTML = ""; $id("pm-run").disabled = true;
+  $id("pm-out").innerHTML = `<div class="spinner">Maximizing your expected utility…</div>`;
+  try {
+    const r = await api("/api/predict/hedge", f);
+    RUNTIME.pmPlan = r; RUNTIME.pmPlanKey = JSON.stringify(S.pm);
+    pmRenderPlan(r);
+    $id("pm-out").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) { $id("pm-out").innerHTML = ""; $id("pm-err").innerHTML = `<div class="error">${esc(e.message)}</div>`; }
+  $id("pm-run").disabled = false;
+}
+
+/* The result. Order matters: the position first, then what it does to
+   your season, then why it is that size, then what you are paying. */
+function pmRenderPlan(r) {
+  const hit = r.market_ticker && RUNTIME.pmIndex && RUNTIME.pmIndex[r.market_ticker];
+  const mkName = hit ? `${hit.series.title} — ${hit.market.label || hit.market.title}`
+    : ((S.pm && S.pm.marketTitle) ? `“${S.pm.marketTitle}” (illustrative price)` : "this contract");
+  const sideWord = (r.side || "no").toUpperCase();
+  const n = Math.abs(r.contracts);
+  const noExposure = r.states.length && r.states.every(s => !s.loss);
+  let verdict;
+  if (r.contracts === 0) verdict = `<span class="verdict">No position: at ${fmtCents(r.price)} this hedge is not worth having at your number.</span>`;
+  else if (r.contracts > 0) verdict = `<span class="verdict">Buy <b>${fmtN(n)} ${sideWord}</b> contracts on ${esc(mkName)}.</span>`;
+  else verdict = `<span class="verdict">Sell <b>${fmtN(n)} ${sideWord}</b> contracts — i.e. buy the ${sideWord === "NO" ? "YES" : "NO"} side. This is a bet, not a hedge.</span>`;
+
+  const tiles = `<div class="tiles">
+    <div class="tile"><div class="k">Cash to put up</div><div class="v">${fmtMoney(r.cost, 0)}</div><div class="s">${r.fee > 0 ? `incl. ${fmtMoney(r.fee, 2)} fees` : "no fees modelled"}</div></div>
+    <div class="tile"><div class="k">Pays if it goes badly</div><div class="v">${fmtMoney(r.payout_if_pays, 0)}</div><div class="s">$1 per contract</div></div>
+    <div class="tile"><div class="k">Worth to you</div><div class="v ${r.ce_gain >= 0 ? "buy" : "sell"}">${fmtSMoney(r.ce_gain, 0)}</div><div class="s">certainty-equivalent gain at γ ${r.gamma.toFixed(2)}</div></div>
+    <div class="tile"><div class="k">Your ceiling</div><div class="v">${fmtCents(r.reservation_price)}</div><div class="s">most you should pay · market asks ${fmtCents(r.price)}</div></div>
+  </div>`;
+
+  /* two to four states: income outcome × contract outcome */
+  const label = (s) => `${s.loss ? "thin" : "good"} ${s.pays ? "✓" : "✗"}`;
+  const maxW = Math.max(...r.states.flatMap(s => [s.wealth_unhedged, s.wealth_hedged]));
+  const bars = barsCompare(r.states.map(s => ({ symbol: label(s), current: s.wealth_unhedged / maxW, target: s.wealth_hedged / maxW })), 1)
+    .replace(/<div class="val">[^<]*<\/div>/g, "");  // fractions of max are not a useful readout
+  const stateRows = r.states.map(s => `<tr>
+    <td>${s.loss ? `<span class="state-bad">Bad season</span>` : `<span class="state-good">Good season</span>`}, contract ${s.pays ? "pays" : "pays nothing"}</td>
+    <td class="num">${fmtPct(s.prob, 0)}</td><td class="num">${fmtMoney(s.wealth_unhedged, 0)}</td>
+    <td class="num ${s.wealth_hedged > s.wealth_unhedged ? "buy" : (s.wealth_hedged < s.wealth_unhedged ? "sell" : "")}">${fmtMoney(s.wealth_hedged, 0)}</td></tr>`).join("");
+  const season = `
+    <h2>Your season, with and without the hedge</h2>
+    <div class="chart"><div class="legend"><span><i style="background:var(--series-1)"></i>With the hedge</span>
+      <span><i style="background:var(--series-2)"></i>Without</span></div>${bars}</div>
+    <table><tr><th>What happens</th><th class="num">Chance</th><th class="num">Without</th><th class="num">With</th></tr>${stateRows}</table>
+    <div class="tiles">
+      <div class="tile"><div class="k">Worst case</div><div class="v">${fmtMoney(r.worst_unhedged, 0)} → ${fmtMoney(r.worst_hedged, 0)}</div><div class="s">least you end the season with</div></div>
+      <div class="tile"><div class="k">Expected</div><div class="v">${fmtMoney(r.expected_wealth_unhedged, 0)} → ${fmtMoney(r.expected_wealth_hedged, 0)}</div><div class="s">the premium is the gap</div></div>
+      <div class="tile"><div class="k">Spread of outcomes</div><div class="v">${fmtMoney(r.std_unhedged, 0)} → ${fmtMoney(r.std_hedged, 0)}</div><div class="s">standard deviation</div></div>
+      <div class="tile"><div class="k">Sure-thing value</div><div class="v">${fmtMoney(r.ce_unhedged, 0)} → ${fmtMoney(r.ce_hedged, 0)}</div><div class="s">certainty equivalent at your γ</div></div>
+    </div>`;
+
+  /* decomposition: insurance vs bet */
+  const pure = r.pure_hedge_contracts, adj = r.speculative_contracts;
+  const whyAdj = (() => {
+    const bits = [];
+    if (r.fee > 0) bits.push("fees make each contract cost a little more than its price");
+    if (Math.abs(r.belief - r.price) > 0.005) bits.push(r.belief > r.price
+      ? `you put the odds at ${fmtPct(r.belief, 0)} against a price of ${fmtCents(r.price)}, so the contract looks cheap to you`
+      : `the price (${fmtCents(r.price)}) is above the odds you put on it (${fmtPct(r.belief, 0)}), so the insurance looks dear`);
+    if (r.gamma < 1 && r.loss !== 0) bits.push("a low risk number means you would rather keep most of the risk than pay for cover");
+    return bits.length ? bits.join("; ") : "at a fair price with no fees, a risk-averse person hedges the whole exposure";
+  })();
+  const decomp = noExposure ? `
+    <h2>Why this size</h2>
+    <div class="note">With nothing to hedge the whole position is a bet. Kelly — the size that maximizes long-run growth,
+    which is what γ = 1 chooses — would stake <b>${fmtPct(Math.abs(r.kelly_fraction), 1)}</b> of your money; your γ of
+    ${r.gamma.toFixed(2)} stakes <b>${fmtPct(Math.abs(r.crra_fraction), 1)}</b>${r.gamma > 1 ? ` — about ${(Math.abs(r.crra_fraction) / Math.max(Math.abs(r.kelly_fraction), 1e-9)).toFixed(2)}× Kelly, which is where the phrase “fractional Kelly” comes from` : ""}.</div>` : `
+    <h2>Why this size: insurance first, then the bet</h2>
+    <table>
+      <tr><th>Piece</th><th class="num">Contracts</th><th>What it is</th></tr>
+      <tr><td>Pure hedge</td><td class="num">${fmtN(pure)}</td><td>your loss × how tightly the market tracks it (${fmtPct(r.basis_correlation, 0)}) — the position that minimizes the swing in your season, regardless of price</td></tr>
+      <tr><td>Adjustment</td><td class="num ${adj >= 0 ? "buy" : "sell"}">${adj >= 0 ? "+" : "−"}${fmtN(adj)}</td><td>${whyAdj}; scaled down by your γ</td></tr>
+      <tr><td><b>Position</b></td><td class="num"><b>${r.contracts < 0 ? "−" : ""}${fmtN(r.contracts)}</b></td><td>what maximizing your expected utility actually picks</td></tr>
+    </table>
+    <div class="muted" style="margin-top:8px">Rule of thumb behind the exact answer: contracts ≈ ρ·L + W·(q − c) / (γ·q·(1 − q)).
+      The first term is the insurance; the second is the bet, and it shrinks with γ. The number above comes from the full
+      expected-utility maximization, not the approximation.</div>`;
+
+  /* price strip: where the market price sits against fair value and ceiling */
+  const pin = (p, cls, text) => `<div class="pin ${cls}" style="left:${Math.min(97, Math.max(3, p * 100))}%">${text}<br><b>${fmtCents(p)}</b></div>`;
+  const pricing = `
+    <h2>What you are paying for the cover</h2>
+    <div class="pstrip"><div class="rail"></div>
+      ${pin(r.price, "", "market asks")}
+      ${pin(r.fair_price, "low", "fair, by your odds")}
+      ${pin(r.reservation_price, Math.abs(r.reservation_price - r.price) < 0.15 ? "low2" : "", "your ceiling")}
+    </div>
+    <div class="muted" style="display:flex;justify-content:space-between"><span>0¢</span><span>100¢</span></div>
+    <p class="lead" style="margin-top:12px">${r.loss === 0 ? "" : `Your ceiling of <b>${fmtCents(r.reservation_price)}</b> is your probability of the bad
+      outcome re-weighted by how much a dollar is worth to you when it has happened. The gap above the fair
+      ${fmtCents(r.fair_price)} is the insurance premium your risk aversion is willing to pay; `}${r.premium_per_contract > 0.005
+      ? `at ${fmtCents(r.price)} you pay <b>${fmtCents(r.premium_per_contract)}</b> per contract above fair, <b>${fmtMoney(r.total_premium, 0)}</b> in all including fees.`
+      : (r.premium_per_contract < -0.005 ? `at ${fmtCents(r.price)} the contract is <b>${fmtCents(-r.premium_per_contract)}</b> below what you think it is worth — you are being paid to hedge, if you are right.`
+        : `at ${fmtCents(r.price)} you pay fair value; the only cost is ${fmtMoney(r.fee, 2)} of fees.`)}</p>`;
+
+  const warns = (r.warnings || []).map(w => `<div class="error" style="background:rgba(208,145,59,0.10);border-color:rgba(208,145,59,0.4);color:#a86a12">⚠︎ ${esc(w)}</div>`).join("");
+  const calNote = r.confidence_used !== r.confidence_stated
+    ? `<div class="note">Your journal adjusted the confidence in your view from ${fmtPct(r.confidence_stated, 0)} to ${fmtPct(r.confidence_used, 0)} before blending.</div>` : "";
+
+  $id("pm-out").innerHTML = `
+    <div class="result-head" style="margin-top:28px">${verdict}
+      <span class="muted">Tier ${r.tier.tier} of 50 · ${esc(r.tier.category)} · blended odds ${fmtPct(r.belief, 0)}</span></div>
+    ${tiles}${warns}${calNote}${season}${decomp}${pricing}
+    <div class="note">This is decision support, not advice. Kalshi's book, position limits, fees and the exact resolution
+    rule are yours to check before trading, and the contract settles on its own schedule, not when your paycheck does.
+    <a class="link" href="#/concepts">Every number here is explained on the concepts page.</a></div>`;
+}
+
+/* ---- the concepts page -----------------------------------------------------
+   Long-form. The worked numbers are not typed in: they are fetched from the
+   same endpoint the tool uses, so the page can never disagree with the tool.
+   Spans with data-pm="…" are filled by pmFillConcepts(). */
+PAGES.concepts = () => {
+  const g = pmGamma();
+  const d = PM_PRESETS[0];
+  const s = (k, fallback = "…") => `<span data-pm="${k}">${fallback}</span>`;
+  const card = (title, body, where) => `<div class="concept"><h3>${title}</h3>${body}${where ? `<div class="where">${where}</div>` : ""}</div>`;
+  $id("page").innerHTML = `<div class="card">
+    <h1>Hedging a paycheck with a prediction market</h1>
+    <p class="lead">The stocks product asks how much of a risky asset you should hold, given your risk
+    aversion. This product asks the mirror-image question for people whose income <i>is</i> the risky
+    asset. The machinery is identical; only the payoff changes shape. Every section below names the
+    place in Hone where the idea already lives.</p>
+    <div class="note">Worked example throughout: <b>${esc(d.label)}</b> — ${fmtMoney(d.wealth, 0)} to live on this season,
+      ${fmtMoney(d.loss, 0)} lost if December is thin, the NO side of “${esc(d.marketTitle)}” at ${fmtCents(d.price)}, and a
+      risk number of <b>γ = ${g.gamma.toFixed(2)}</b> (${esc(g.source)}). Numbers are computed live by the sizing engine.</div>
+
+    ${card("1 · You already hold a position",
+      `<p>An investor's portfolio is a bundle of uncertain payoffs. So is a season of lessons, a quarter of ad bookings,
+      a year of commissions. Economics treats both the same way: a person with constant relative risk aversion values an
+      uncertain future by its <b>expected utility</b>, and the utility of a sure amount that would leave them exactly as
+      happy is the <b>certainty equivalent</b>.</p>
+      <div class="formula">U(w) = w<sup>1−γ</sup> / (1−γ)   <small>(γ = 1 is log utility)</small>   ·   CE = U<sup>−1</sup>( E[U(w)] )</div>
+      <p>For the instructor, a season that is ${fmtMoney(d.wealth, 0)} with probability ${fmtPct(1 - d.price, 0)} and
+      ${fmtMoney(d.wealth - d.loss, 0)} with probability ${fmtPct(d.price, 0)} is worth ${s("ce_un")} for sure at this γ —
+      ${s("ce_gap")} less than its ${s("ew_un")} average. That gap is the price of carrying the risk, and it is what a hedge
+      can recover.</p>`,
+      `Where it lives: the <b>questionnaire</b> measures γ, and the <b>Certainty equivalent</b> tile on the rebalance page
+      is this same number for a stock portfolio.`)}
+
+    ${card("2 · A price is a probability",
+      `<p>A Kalshi contract pays $1 if its event happens and $0 if it does not. The YES side at 35¢ is therefore the
+      market saying “35%”, and the NO side costs 65¢ — the two always add to a dollar. Buying 7,000 NO at 65¢ costs $4,550
+      and pays $7,000 if the event fails; buying the YES is the identical bet in reverse.</p>
+      <p>Two frictions are modelled in every number the tool shows. The <b>spread</b>: you buy at the ask, and in thin
+      weather markets the ask can sit 20–50¢ above the bid, so the tool prices at the ask rather than the flattering
+      midpoint. The <b>fee</b>: Kalshi's taker fee is proportional to P(1−P), largest on coin flips and almost nothing at
+      the extremes.</p>
+      <div class="formula">fee = ceil( 0.07 × contracts × P × (1 − P) )   <small>— on ${s("contracts")} contracts at ${fmtCents(d.price)}: ${s("fee")}</small></div>`,
+      `Where it lives: new to Hone, but the <b>hedge page's option costs</b> play the same role — the price of
+      protection, read from a live quote when there is one and a model when there is not.`)}
+
+    ${card("3 · Hedge first, bet second",
+      `<p>Buying n contracts leaves the instructor with W − L·D + n·(B − c) − fee, where D is whether the thin season
+      happens, B whether the contract pays, and c its price. Choosing n to maximize expected utility gives a position
+      that always splits into two pieces:</p>
+      <div class="formula">n* ≈ ρ·L  +  W·(q − c) / (γ·q·(1−q))   <small>— insurance, then the bet</small></div>
+      <p>The first term is the <b>pure hedge</b>: the loss L, scaled by how tightly the market tracks it (ρ, next section).
+      It does not depend on price or on γ — it is simply the position that makes the two seasons look alike. The second
+      term is a <b>bet</b> on the gap between your probability q and the price c, and it shrinks with your risk aversion
+      and with how uncertain the event is. At a fair price with no fees the bet is zero and <i>any</i> risk-averse person
+      hedges the whole loss.</p>
+      <p>For the instructor: pure hedge ${s("pure")} contracts, adjustment ${s("adj")}, position <b>${s("contracts")}</b>
+      — costing ${s("cost")} and paying ${s("payout")} if December is thin. The adjustment is negative here only because
+      fees make each contract cost slightly more than its fair price; the tool labels the two pieces separately every time
+      so you can see when a “hedge” has quietly become a bet.</p>`,
+      `Where it lives: ρ·L is the <b>beta-sized index short</b> in hone/hedging — the minimum-variance hedge. The bet
+      term is the <b>mean-variance objective</b> w'μ − (γ/2)w'Σw with one asset.`)}
+
+    ${card("4 · What the hedge is worth, and the most you should pay",
+      `<p>The hedge turns a season worth ${s("ce_un")} for sure into one worth ${s("ce_hd")} — a <b>certainty-equivalent
+      gain of ${s("ce_gain")}</b>. That is the dollar value of the insurance <i>to this person</i>; someone with a higher γ
+      values it more, someone risk-neutral values it at zero.</p>
+      <p>Because a dollar is worth more in the thin season than the good one, a risk-averse person will rationally pay
+      <i>above</i> the fair price for a contract that pays in the thin season. How far above has a closed form: the price
+      at which the first contract stops being worth buying.</p>
+      <div class="formula">c<sub>max</sub> = E[ U′(W₀)·B ] / E[ U′(W₀) ]   <small>— your probability of the event, weighted by how much a dollar hurts to lose in each state</small></div>
+      <p>For the instructor c<sub>max</sub> is <b>${s("ceiling")}</b> against a market price of ${fmtCents(d.price)}: the
+      ${s("ceiling_gap")} gap is the premium their risk aversion is willing to pay. Above the ceiling the tool shows no
+      position, however scary the season.</p>`,
+      `Where it lives: the <b>Merton risk budget</b> on the hedge page is the same trade — how much expected return your
+      γ gives up to cut risk — written for volatility instead of a binary event.`)}
+
+    ${card("5 · Basis risk: the market resolves on a weather station, not on your tips",
+      `<p>The contract pays on measured snowfall; the instructor's income depends on visitors, lessons booked, and whether
+      the mountain opened the terrain that matters. Those are correlated, not identical. The tool asks for that
+      correlation, ρ, and the hedge shrinks to ρ·L because the rest of the risk is not something this contract can see.</p>
+      <p>Same instructor, same contract, ρ = 0.6 instead of 0.9: position ${s("b_contracts")} contracts, worth ${s("b_gain")}
+      instead of ${s("ce_gain")}. The residual variance, (1 − ρ²) of the original, stays with you whatever you buy — which is
+      why a loose proxy is only ever a partial answer, and why the catalog labels each market <b>direct</b>, <b>close</b> or
+      <b>proxy</b>.</p>
+      <p>How to estimate ρ honestly: think of past bad seasons. In how many did the market's number also come in bad?
+      Every year it did not is a year the hedge would have paid you nothing while you lost money anyway.</p>`,
+      `Where it lives: <b>portfolio_beta</b> and <b>short_hedge</b> in hone/hedging, where an index hedge is sized by the
+      portfolio's correlation with the index and capped at the minimum-variance size.`)}
+
+    ${card("6 · Your view against the market",
+      `<p>The market price is the aggregate of everyone else's information. If you think the odds are different, the tool
+      does not take your word for it outright: it blends your probability with the market's in proportion to your
+      confidence, and warns when the blended number ends up far from the price.</p>
+      <div class="formula">q* = (1 − κ)·p<sub>market</sub> + κ·q<sub>you</sub>   <small>— κ is your confidence, 0 to 1</small></div>
+      <p>This is Black-Litterman in one line: the market is the equilibrium prior, your number is the view, confidence
+      sets the weight. And prediction markets are the one place where your confidence can be <i>scored</i>: a probability
+      that resolves YES or NO is exactly what a Brier score measures, which is the currency of Hone's decision journal. Once
+      the journal has enough resolved predictions, the same calibration map it applies to your stock views is applied to
+      your confidence here — automatically, and disclosed on the result.</p>`,
+      `Where it lives: <b>Black-Litterman with Idzorek confidence</b> in hone/optimization, and the <b>journal's Brier
+      scoring and calibration map</b> in hone/journal.`)}
+
+    ${card("7 · Sizing with nothing to hedge: Kelly and γ",
+      `<p>Set the loss to zero and the position is a pure bet. The Kelly criterion stakes the fraction of wealth that
+      maximizes long-run growth — edge over odds, (q − c)/(1 − c) — and it is exactly what γ = 1 chooses. Higher γ stakes
+      less. People call the result “fractional Kelly” and pick the fraction by feel; here it falls out of a measured
+      number.</p>
+      <div id="pm-kelly-table"><div class="spinner">Computing…</div></div>
+      <p class="muted">Fees off, a contract priced at 40¢ you believe is 55% likely. Kelly stakes 25% of wealth.</p>`,
+      `Where it lives: the <b>50 tiers</b> — each band of γ now has a bet size as well as a portfolio.`)}
+
+    ${card("8 · The same exposure, across the tiers",
+      `<p>What the instructor's hedge looks like at the representative γ of each tier band. The pure hedge is the same for
+      everyone — it is a fact about the exposure, not the person — but the price each tier will pay for it, and therefore
+      how much of it they buy, is not.</p>
+      <div id="pm-tier-table"><div class="spinner">Computing…</div></div>`,
+      `Where it lives: <b>hone/risk_profile/tiers.py</b>, the same 50-tier scale as the gauge on your profile page.`)}
+
+    ${card("9 · What this cannot do",
+      `<p><b>It cannot remove basis risk.</b> A proxy hedge leaves the uncorrelated part of your season untouched, and a
+      direct hedge still resolves on a measurement, not on your bank balance.</p>
+      <p><b>It cannot see the order book you will actually trade in.</b> Thin markets may not fill at the ask, position
+      limits cap how much you can buy, and fee schedules change. The catalog shows volume and spread so you can judge.</p>
+      <p><b>It assumes one period and one binary event.</b> Real seasons have many months, many thresholds and a contract
+      that settles on its own date rather than when your income arrives. Laddering several strikes is a reasonable
+      extension; the tool sizes one at a time.</p>
+      <p><b>It cannot tell you the market is wrong.</b> Prediction-market prices are hard to beat. The blend and the
+      warnings are there to keep a hedge from turning into an unexamined bet, not to encourage one.</p>
+      <p><b>It is not advice.</b> Tax treatment of event contracts, state-by-state availability and Kalshi's rules are
+      yours to check. Hone sizes and explains; it never trades.</p>`)}
+
+    <h2>Where each piece already lives in Hone</h2>
+    <table>
+      <tr><th>Here</th><th>Elsewhere in Hone</th></tr>
+      <tr><td>Risk number γ, 50 tiers</td><td>The questionnaire and profile page — identical, shared across all three tabs</td></tr>
+      <tr><td>Certainty-equivalent gain of the hedge</td><td>The “Certainty equivalent” tile on the rebalance page</td></tr>
+      <tr><td>Pure hedge ρ·L</td><td>The beta-sized index short on the hedge page</td></tr>
+      <tr><td>Your ceiling c<sub>max</sub></td><td>The Merton risk budget: expected return given up for risk removed</td></tr>
+      <tr><td>Blending your odds with the price</td><td>Black-Litterman with Idzorek confidence on the views page</td></tr>
+      <tr><td>Confidence corrected by your record</td><td>The decision journal's Brier score and calibration map</td></tr>
+      <tr><td>Season with/without the hedge</td><td>The stress table on the hedge page: losses in named scenarios</td></tr>
+    </table>
+    <div class="navrow"><button class="ghost" onclick="go('start')">&larr; Back to start</button>
+      <button class="primary" onclick="go('size')">Size my hedge →</button></div>
+  </div>`;
+  pmFillConcepts(g.gamma);
+};
+
+/* Fetch the worked example (and its two variants) and drop the numbers into
+   the concepts page. Any failure leaves the ellipses in place rather than
+   showing stale typed-in numbers. */
+async function pmFillConcepts(gamma) {
+  const d = PM_PRESETS[0];
+  const put = (k, v) => document.querySelectorAll(`[data-pm="${k}"]`).forEach(el => el.textContent = v);
+  const base = { gamma, wealth: d.wealth, loss: d.loss, price: d.price, market_prob: d.marketProb, basis_correlation: 1.0, include_fees: true };
+  try {
+    const [r, rb] = await Promise.all([api("/api/predict/hedge", base),
+                                       api("/api/predict/hedge", Object.assign({}, base, { basis_correlation: 0.6 }))]);
+    put("ce_un", fmtMoney(r.ce_unhedged, 0)); put("ew_un", fmtMoney(r.expected_wealth_unhedged, 0));
+    put("ce_gap", fmtMoney(r.expected_wealth_unhedged - r.ce_unhedged, 0));
+    put("contracts", fmtN(r.contracts)); put("fee", fmtMoney(r.fee, 2)); put("cost", fmtMoney(r.cost, 0));
+    put("payout", fmtMoney(r.payout_if_pays, 0)); put("pure", fmtN(r.pure_hedge_contracts));
+    put("adj", (r.speculative_contracts >= 0 ? "+" : "−") + fmtN(r.speculative_contracts));
+    put("ce_hd", fmtMoney(r.ce_hedged, 0)); put("ce_gain", fmtSMoney(r.ce_gain, 0));
+    put("ceiling", fmtCents(r.reservation_price)); put("ceiling_gap", fmtCents(r.reservation_price - r.price));
+    put("b_contracts", fmtN(rb.contracts)); put("b_gain", fmtSMoney(rb.ce_gain, 0));
+  } catch (e) { /* leave the ellipses */ }
+  /* Kelly table: pure bet at several γ */
+  try {
+    const gs = [0.5, 1, 2, 3, 4];
+    const rows = await Promise.all(gs.map(gm => api("/api/predict/hedge",
+      { gamma: gm, wealth: 10000, loss: 0, price: 0.40, market_prob: 0.40, own_prob: 0.55, confidence: 1, include_fees: false })));
+    const el = $id("pm-kelly-table");
+    if (el) el.innerHTML = `<table><tr><th class="num">γ</th><th>Tier</th><th class="num">Stake, % of wealth</th><th class="num">× Kelly</th></tr>
+      ${rows.map((r, i) => `<tr><td class="num">${gs[i].toFixed(1)}</td><td>${r.tier.tier} · ${esc(r.tier.category)}</td>
+        <td class="num">${fmtPct(Math.abs(r.crra_fraction), 1)}</td><td class="num">${(Math.abs(r.crra_fraction) / Math.abs(r.kelly_fraction)).toFixed(2)}</td></tr>`).join("")}</table>`;
+  } catch (e) { const el = $id("pm-kelly-table"); if (el) el.innerHTML = `<div class="muted">Unavailable.</div>`; }
+  /* tier table: the worked exposure across the bands */
+  try {
+    const gs = [0.2, 0.7, 1.2, 2.5, 3.5];
+    const rows = await Promise.all(gs.map(gm => api("/api/predict/hedge", Object.assign({}, base, { gamma: gm }))));
+    const el = $id("pm-tier-table");
+    if (el) el.innerHTML = `<table><tr><th class="num">γ</th><th>Tier</th><th class="num">Contracts</th><th class="num">Share of loss covered</th><th class="num">Ceiling</th><th class="num">Worth to them</th></tr>
+      ${rows.map((r, i) => `<tr><td class="num">${gs[i].toFixed(1)}</td><td>${r.tier.tier} · ${esc(r.tier.category)}</td>
+        <td class="num">${fmtN(r.contracts)}</td><td class="num">${fmtPct(r.contracts / d.loss, 0)}</td>
+        <td class="num">${fmtCents(r.reservation_price)}</td><td class="num">${fmtSMoney(r.ce_gain, 0)}</td></tr>`).join("")}</table>`;
+  } catch (e) { const el = $id("pm-tier-table"); if (el) el.innerHTML = `<div class="muted">Unavailable.</div>`; }
 }
 
 /* ============================== layout guards ============================= */

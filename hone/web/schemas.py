@@ -584,3 +584,124 @@ class TrainingExportResponse(BaseModel):
 
 
 CompileRequest.model_rebuild()
+
+
+# ------------------------------------------------------- prediction markets
+class ContractHedgeRequest(BaseModel):
+    """Size an event contract against income risk — see hone/prediction/hedge.py."""
+
+    gamma: float
+    #: money available over the horizon (earnings + the savings a bad season would eat)
+    wealth: float = Field(gt=0)
+    #: dollars lost if the bad outcome happens; 0 means pure speculation
+    loss: float = Field(ge=0)
+    #: ask price of the contract side that pays when the bad outcome happens
+    price: float = Field(gt=0, lt=1)
+    #: the market's probability of that side (midpoint); defaults to the price
+    market_prob: float | None = Field(default=None, gt=0, lt=1)
+    #: the user's own probability of that side, and how sure they are of it
+    own_prob: float | None = Field(default=None, ge=0, le=1)
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    #: how tightly the market's event tracks the user's own loss
+    basis_correlation: float = Field(default=1.0, ge=0, le=1)
+    fee_multiplier: float = Field(default=1.0, ge=0)
+    include_fees: bool = True
+    #: the journal's fitted confidence map, applied to `confidence` first
+    calibration: CalibrationMap | None = None
+    #: free text, echoed back so the page can label the result
+    market_ticker: str | None = None
+    side: str | None = None
+
+
+class ContractStateOut(BaseModel):
+    prob: float
+    pays: bool
+    loss: bool
+    wealth_unhedged: float
+    wealth_hedged: float
+
+
+class ContractHedgeResponse(BaseModel):
+    gamma: float
+    tier: TierInfo
+    belief: float
+    market_prob: float
+    price: float
+    basis_correlation: float
+    basis_clipped: bool
+    n_star: float
+    contracts: int
+    direction: str
+    cost: float
+    fee: float
+    payout_if_pays: float
+    pure_hedge_contracts: float
+    speculative_contracts: float
+    ce_unhedged: float
+    ce_hedged: float
+    ce_gain: float
+    expected_wealth_unhedged: float
+    expected_wealth_hedged: float
+    worst_unhedged: float
+    worst_hedged: float
+    std_unhedged: float
+    std_hedged: float
+    reservation_price: float
+    fair_price: float
+    premium_per_contract: float
+    total_premium: float
+    kelly_fraction: float
+    crra_fraction: float
+    states: list[ContractStateOut]
+    warnings: list[str]
+    needs_hedge: bool
+    #: confidence actually used after the calibration map, if one applied
+    confidence_used: float
+    confidence_stated: float
+    market_ticker: str | None = None
+    side: str | None = None
+
+
+class PredictionMarketOut(BaseModel):
+    ticker: str
+    event_ticker: str = ""
+    title: str
+    label: str = ""
+    status: str = ""
+    close_time: str = ""
+    yes_bid: float | None = None
+    yes_ask: float | None = None
+    no_bid: float | None = None
+    no_ask: float | None = None
+    last: float | None = None
+    implied: float | None = None
+    spread: float | None = None
+    volume: float = 0.0
+    open_interest: float = 0.0
+    strike: float | None = None
+    strike_type: str = ""
+    rules: str = ""
+
+
+class PredictionSeriesOut(BaseModel):
+    ticker: str
+    title: str
+    basis: str
+    bad_side: str
+    note: str = ""
+    open_count: int = 0
+    markets: list[PredictionMarketOut] = []
+
+
+class PredictionIndustryOut(BaseModel):
+    key: str
+    label: str
+    who: str
+    series: list[PredictionSeriesOut]
+
+
+class PredictionCatalogResponse(BaseModel):
+    as_of: str | None
+    #: "live", "live-partial" or "snapshot"
+    source: str
+    industries: list[PredictionIndustryOut]

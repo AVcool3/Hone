@@ -34,6 +34,7 @@ include = ["hone*"]
 
 [tool.setuptools.package-data]
 "hone.web" = ["static/*"]
+"hone.prediction" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -18,6 +18,8 @@ from hone.journal.calibration import (
 from hone.journal.records import Prediction, resolve_all, resolve_prediction
 from hone.web.app import create_app
 
+from frontend_source import built_index, source  # React UI source (see tests/frontend_source.py)
+
 
 @pytest.fixture(scope="module")
 def client():
@@ -363,25 +365,24 @@ class TestCalibrationInOptimize:
 
 class TestJournalUI:
     def test_journal_page_exists_and_is_linked(self, client):
-        html = client.get("/").text
-        assert "PAGES.journal" in html
-        assert "/api/journal" in html
-        assert '"journal"' in html  # registered as an aside page
+        assert "/api/journal" in source("RecordPage.jsx")
+        assert "{ key: 'record', label: 'Track record'" in source("lib/products.js")
+        assert client.get("/stocks/app/record").status_code == 200
 
     def test_predictions_are_logged_at_the_server_price(self, client):
-        html = client.get("/").text
-        assert "journalRecord(RUNTIME.optimize.views)" in html
-        assert "entry_price: v.current_price" in html
+        page = source("PortfolioPage.jsx")
+        assert "journalRecord(r.views)" in page
+        assert "entry_price: v.current_price" in page
 
     def test_calibration_is_sent_with_optimize(self, client):
-        html = client.get("/").text
-        assert "body.calibration = S.calibration" in html
-        assert "S.useCalibration !== false" in html
+        hooks = source("lib/hooks.js")
+        assert "body.calibration = ws.calibration" in hooks
+        assert "ws.useCalibration !== false" in hooks
 
     def test_adjustment_is_disclosed_not_silent(self, client):
-        html = client.get("/").text
-        assert "confidence_adjustments" in html
-        assert "rescaled from your track record" in html
+        page = source("PortfolioPage.jsx")
+        assert "confidence_adjustments" in page
+        assert "rescaled from your track record" in page
 
 
 class TestNoFeedbackLoop:
@@ -410,5 +411,4 @@ class TestNoFeedbackLoop:
         assert v["confidence"] < 0.8  # what the optimizer actually used
 
     def test_the_page_journals_the_stated_value(self, client):
-        html = client.get("/").text
-        assert "v.stated_confidence != null ? v.stated_confidence" in html
+        assert "confidence: v.stated_confidence ?? v.confidence" in source("PortfolioPage.jsx")

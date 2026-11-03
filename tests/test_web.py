@@ -3,6 +3,8 @@ from fastapi.testclient import TestClient
 
 from hone.web.app import create_app
 
+from frontend_source import built_index, source  # React UI source (see tests/frontend_source.py)
+
 
 @pytest.fixture(scope="module")
 def client():
@@ -24,10 +26,10 @@ class TestStatic:
         assert '<meta name="description"' in html
         assert 'property="og:image"' in html
         assert 'property="og:title"' in html
-        # funnel + trust sections present in raw HTML
-        assert "The problem" in html
+        # the no-JavaScript fallback explains the product and the trust question
+        assert "Turn your investment views into a portfolio you can explain." in html
         assert "How it works" in html
-        assert "Built to be trusted" in html
+        assert "Three products, one method" in html
         assert "Is this real money?" in html
 
     def test_favicon_assets_served_and_linked(self, client):

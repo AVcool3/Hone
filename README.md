@@ -33,96 +33,47 @@ Everything below is also available in the browser:
 python -m hone serve                 # http://127.0.0.1:8000
 ```
 
-The single-page app walks through the same four steps: the 30-question
-risk questionnaire (with the 50-tier gauge), your portfolio, the
-optimize tab (views + Black-Litterman + MVO with a current-vs-target
-weight chart and trade list), and the hedge tab. A **demo mode** toggle
-runs the whole flow on synthetic data with no Alpaca account; switch it
-off to use your paper account — keys can be typed into the page
-(held in-page, sent per request, never stored server-side) or left
-blank to use the server's `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`
-environment variables. The JSON API is documented at `/docs`
-(OpenAPI) when the server is running.
+The browser app is organised around **tools you can open in any order**,
+each at its own URL, rather than a step-by-step flow:
 
-## Quick start (CLI)
+| Workspace tool (`/:product/app/...`) | What it does |
+|---|---|
+| Overview | Summary, launch cards, current vs. model-proposed allocation |
+| Risk aversion (`risk`) | Eight-question adaptive estimate (or the classic 30), with uncertainty; stated vs. revealed risk |
+| Investment theses (`theses`) | Editable price-target views with a live allocation beside them; plain-English compiler; "More view types" (entropy pooling) |
+| Portfolio (`portfolio`) | Current vs. proposed, one expandable explanation per change, sensitivity, commit views to the journal |
+| Hedging (`hedging`) | Hedge plan, stress scenarios, tail risk (CVaR) |
+| Track record (`record`) | Decision journal, calibration, training-data export |
+| Backtest (`backtest`) | Walk-forward backtest at your risk level, with the behaviour gap |
+| Data & account (`settings`) | Sample data vs. Alpaca paper account, optional sign-in |
+
+Prediction Markets has its own tools: `hedge` (size an income hedge) and
+`markets` (browse the Kalshi catalog). Public pages per product: overview,
+`how-it-works`, `methodology`, `backtests`, `setup` — the last three render
+the files in `docs/` verbatim. Everything runs on **sample data** with no
+Alpaca account; switch to your paper account under *Data & account* (keys
+are sent per request and never stored server-side), or leave them blank to
+use the server's `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`. The JSON API is
+documented at `/docs` (OpenAPI) when the server is running.
+
+### Working on the frontend
+
+The UI is a React app (Vite) in `frontend/`. Its production build is
+written to `hone/web/static/` and **committed**, so deploys need no Node
+toolchain.
 
 ```bash
-# Full pipeline on synthetic data (no API keys needed)
-python -m hone demo
-
-# Part 1: elicit your gamma interactively (3 rounds x 10 choices)
-python -m hone questionnaire
-
-# Part 3: reweight with a view — "TSLA to $400, 60% confident, 6 months"
-export ALPACA_API_KEY=... ALPACA_SECRET_KEY=...     # paper keys
-python -m hone optimize --gamma 1.2 --view TSLA:400:0.6:180
-
-# Hedge suggestions for your risk tier
-python -m hone hedge --gamma 2.4
-
-# Everything also works without an Alpaca account:
-python -m hone optimize --demo --gamma 1.2 --view TSLA:200:0.6
+cd frontend
+npm install
+npm run dev     # http://localhost:5173, proxies /api to python -m hone serve on :8000
+npm run build   # rebuild hone/web/static/ — commit the result
 ```
 
-## How each part works
-
-### Part 1 — the risk-aversion parameter (`hone/risk_profile/`)
-
-* `holt_laury.py` — the 10-row menu (Option A safe: $2.00/$1.60;
-  Option B risky: $3.85/$0.10) presented at three stake scales
-  (×1, ×20, ×100 → top prize $2 to $385). The switch point brackets γ in
-  the canonical intervals (switching after 5 safe choices ⇒
-  γ ∈ (0.15, 0.41)).
-* `estimation.py` — the precision engine. CRRA utility
-  U(x) = x^(1−γ)/(1−γ), a noise parameter μ, and the log-likelihood
-  ln L(γ, μ; y) = Σᵢ [yᵢ ln Pr(A) + (1−yᵢ) ln(1−Pr(A))] maximized with
-  multi-start L-BFGS-B. Two error specifications:
-  * `luce` — the latent choice ratio
-    Pr(A) = U_A^(1/μ) / (U_A^(1/μ) + U_B^(1/μ)) exactly as in the design
-    document (requires γ < 1, where expected utilities are positive);
-  * `fechner` (default) — a logistic error on the contextually
-    normalized EU difference, well-defined for every γ. Both agree
-    closely in the empirically common region.
-  Standard errors come from the inverse numerical Hessian.
-* `tiers.py` — 50 tiers partitioning γ ∈ [−1, 4] into 0.10-wide bins;
-  tier 1 = most risk-seeking, tier 50 = most risk-averse, with category
-  labels and a representative γ per tier.
-* `questionnaire.py` — the interactive flow (I/O injected, fully
-  scriptable/testable).
-
-### Part 2 — market data (`hone/market_data/`)
-
-* `alpaca_client.py` — thin REST client for the **paper-trading**
-  endpoints: account, positions, portfolio weights, daily bars (with
-  pagination), latest prices, and order submission. Credentials from
-  `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`.
-* `covariance.py` — **business-side only** (feeds the optimizer; never
-  shown to end users): log-returns, sample covariance, RiskMetrics EWMA
-  (λ = 0.94), and Ledoit-Wolf (2004) shrinkage — the default, because
-  short retail price histories make raw sample covariances noisy and
-  ill-conditioned.
-
-### Part 3 — reweighting and hedging (`hone/optimization/`, `hone/hedging/`)
-
-* `views.py` — a view is *(ticker, current price, target price,
-  confidence, horizon)*; the target price is annualized into the
-  Black-Litterman `Q` entry.
-* `black_litterman.py` — equilibrium prior Π = δΣw from your **own**
-  holdings (so "no views" ≈ hold what you have), Idzorek's mapping from
-  confidence to view uncertainty Ω, and the standard posterior
-  μ_BL = [(τΣ)⁻¹ + PᵀΩ⁻¹P]⁻¹ [(τΣ)⁻¹Π + PᵀΩ⁻¹Q].
-* `mvo.py` — maximizes w'μ − (γ/2)·w'Σw (full investment, optional
-  long-only and per-name caps), with γ straight from the questionnaire.
-* `hedging/` — the Merton rule α\* = (μₚ − r)/(γσₚ²) converts γ into a
-  target volatility; the engine then sizes
-  * a **short hedge** (e.g. short SPY) that brings hedged volatility to
-    the target,
-  * a **protective put** with a γ-dependent floor (more risk-averse ⇒
-    tighter floor), and
-  * a **zero-cost collar** (same put financed by selling an OTM call),
-  with indicative Black-Scholes costs.
-* `pipeline.py` — chains 1→2→3 and prints the posterior returns, the
-  optimal weights, the buy/sell trade list, and the hedge plan.
+Where things live: `src/lib/` (API client, persisted state, formatting,
+product definitions), `src/components/` (shared UI), `src/pages/` (one
+folder per area), `src/styles/global.css` (design tokens — edit colours
+there), `src/reactbits/` (components from [React Bits](https://reactbits.dev):
+AnimatedContent, SlideCommit, SpotlightCard, RubberSegment, SquishSwitch).
 
 ## Layout
 
@@ -137,9 +88,10 @@ hone/
 ├── crypto/          # the crypto product's universe and parameters
 ├── prediction/      # Hone Markets: event-contract hedging, Kalshi catalog
 ├── backtest/        # walk-forward engine + conviction population study
-├── web/             # FastAPI JSON API + single-page UI
+├── web/             # FastAPI JSON API; static/ holds the built React app
 ├── pipeline.py      # end-to-end flow
 └── cli.py           # `python -m hone ...` (incl. `serve`)
+frontend/            # React source for the web app (built into hone/web/static/)
 ```
 
 ## Hosting it on a domain

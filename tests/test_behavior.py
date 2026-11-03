@@ -16,6 +16,8 @@ from hone.backtest.engine import run_backtest
 from hone.pipeline import synthetic_universe
 from hone.web.app import create_app
 
+from frontend_source import built_index, source  # React UI source (see tests/frontend_source.py)
+
 
 @pytest.fixture(scope="module")
 def client():
@@ -291,9 +293,9 @@ class TestBacktestEndpoint:
         assert body["behavior"] is not None
 
     def test_page_shows_it_without_overclaiming(self, client):
-        html = client.get("/").text
-        assert "What you'd actually have got" in html
-        assert "behaviorHTML" in html
+        page = source("BacktestPage.jsx")
+        assert "What you’d actually have got" in page
+        assert "function BehaviorGap" in page
         # the honest caveat has to be present, not just the flattering read
-        assert "single paths are" in html
-        assert "The sell rule isn't invented" in html
+        assert "single paths are" in page
+        assert "The sell rule isn’t invented" in page

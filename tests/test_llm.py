@@ -18,6 +18,8 @@ from hone.llm.fallback import (
 from hone.llm.schemas import CompiledView
 from hone.web.app import create_app
 
+from frontend_source import built_index, source  # React UI source (see tests/frontend_source.py)
+
 
 @pytest.fixture(scope="module")
 def client():
@@ -323,23 +325,25 @@ class TestCompileEndpoint:
 
 class TestCompilerUI:
     def test_views_page_has_the_compiler(self, client):
-        html = client.get("/").text
-        assert "Describe your thesis" in html
-        assert "/api/compile-view" in html
-        assert "Compile my thesis" in html
+        compiler = source("Compiler.jsx")
+        assert "Write it in plain English" in compiler
+        assert "/api/compile-view" in compiler
+        assert "Turn into theses" in compiler
+        assert "<Compiler" in source("ThesesPage.jsx")
 
     def test_every_compiled_field_is_an_input(self, client):
-        """The user must be able to edit each field before it's used."""
-        html = client.get("/").text
-        for cls in ("v-ticker", "v-entry", "v-target", "v-conf", "v-days"):
-            assert f'class="{cls}"' in html
+        """The user must be able to edit each field before it's used:
+        compiled views become theses, edited in the thesis editor."""
+        editor = source("ThesisEditor.jsx")
+        for label in ('ariaLabel="Price target"', 'ariaLabel="Confidence"', 'aria-label="Horizon in days"', "id={`tk-${t.id}`}"):
+            assert label in editor
 
     def test_guessed_fields_are_visually_marked(self, client):
-        html = client.get("/").text
-        assert "needs_review" in html
-        assert ".field.guessed" in html
+        compiler = source("Compiler.jsx")
+        assert "needs_review" in compiler
+        assert '<Badge key={f} tone="stale">Check' in compiler
 
     def test_user_text_is_escaped_before_reaching_innerhtml(self, client):
-        html = client.get("/").text
-        assert "const esc" in html
-        assert "esc(v.thesis)" in html
+        """React escapes text; nothing may opt out of that."""
+        assert "dangerouslySetInnerHTML" not in source()
+        assert "innerHTML" not in source()

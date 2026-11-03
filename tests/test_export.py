@@ -20,6 +20,8 @@ from hone.llm.export import (
 from hone.llm.personalize import MIN_EXAMPLES, build_personalization
 from hone.web.app import create_app
 
+from frontend_source import built_index, source  # React UI source (see tests/frontend_source.py)
+
 
 @pytest.fixture(scope="module")
 def client():
@@ -300,17 +302,16 @@ class TestTrainingScript:
 
 class TestExportUI:
     def test_journal_page_offers_the_export(self, client):
-        html = client.get("/").text
-        assert "/api/export/training" in html
-        assert "Check my training data" in html
-        assert "downloadText" in html
+        page = source("RecordPage.jsx")
+        assert "/api/export/training" in page
+        assert "Check my training data" in page
+        assert "downloadText" in page
 
     def test_page_says_claude_cannot_be_fine_tuned(self, client):
         """Users will assume the download tunes Claude. It does not."""
-        html = client.get("/").text
-        assert "can't be fine-tuned through the API" in html
+        assert "can’t be fine-tuned through the API" in source("RecordPage.jsx")
 
     def test_compile_sends_the_journal(self, client):
-        html = client.get("/").text
-        assert "predictions: journalLoad()" in html
-        assert "tuned to your last" in html
+        compiler = source("Compiler.jsx")
+        assert "predictions: journal" in compiler
+        assert "tuned to your last" in compiler

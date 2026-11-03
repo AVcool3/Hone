@@ -1,0 +1,88 @@
+/* ==========================================================================
+   Prediction Markets workspace: Income hedge + Markets pages.
+   Uses the tokens from styles/global.css. Colour meanings stay stable:
+   slate = without hedge (current), indigo = with hedge (proposed),
+   amber = attention, red = losses only.
+   ========================================================================== */
+
+/* ---- step cards (Income hedge, left column) ----------------------------- */
+.pm-steps { display: flex; flex-direction: column; gap: var(--s5); min-width: 0; }
+.pm-step__head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: var(--s4); }
+.pm-step__num {
+  flex: none; width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--lavender); color: var(--lavender-ink);
+  font-weight: 700; font-size: 14px;
+}
+
+/* Industry choice cards: equal weight, two per row, one on phones. */
+.pm-industries { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
+.pm-industry { padding: var(--s4); }
+.pm-industry__label { font-weight: 600; font-size: 16px; }
+.pm-industry__who {
+  font-size: 13.5px; color: var(--ink-2); margin-top: 4px; line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.pm-series-info { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+
+/* Market picker: selectable rows instead of a wide table. */
+.pm-markets { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; padding: 2px; }
+.pm-market {
+  appearance: none; font: inherit; color: inherit; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px; width: 100%;
+  background: var(--surface); border: 1.5px solid var(--line); border-radius: var(--r-ctl);
+  padding: 10px 12px; min-height: 44px;
+}
+.pm-markets > * { flex: none; } /* rows keep their height; the list scrolls instead */
+.pm-market:hover { border-color: var(--ink-3); }
+.pm-market.is-selected { border-color: var(--primary); background: var(--primary-wash); }
+.pm-market__label { font-weight: 600; font-size: 15px; }
+.pm-market__meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pm-market__meta b { color: var(--ink); }
+
+/* "Your loss happens when" vs "This contract pays when" */
+.pm-compare { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); margin-bottom: var(--s4); }
+.pm-compare__col { background: var(--surface-sunk); border-radius: var(--r-ctl); padding: 12px 14px; font-size: 14.5px; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.pm-compare__col .eyebrow { margin-bottom: 6px; }
+
+/* ---- result panel -------------------------------------------------------- */
+.pm-headline { font-size: 24px; letter-spacing: -0.015em; margin-top: 6px; }
+.pm-legend { display: flex; gap: 16px; margin-bottom: 6px; }
+.pm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.pm-legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.pm-stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); }
+.pm-split { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.pm-split .num { font-weight: 600; }
+.pm-sens { display: grid; grid-template-columns: 1fr; gap: var(--s4); }
+.pm-sens table { font-size: 14px; }
+.pm-sens td, .pm-sens th { padding: 6px 8px; }
+.pm-sens__current td { background: var(--proposed-wash); }
+
+/* ---- Markets page --------------------------------------------------------- */
+.pm-facts { display: grid; gap: 8px; margin: 0; }
+.pm-facts > div { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 12px; font-size: 14.5px; }
+.pm-facts dt { color: var(--ink-3); font-weight: 500; }
+.pm-facts dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+.pm-table td { vertical-align: middle; }
+.pm-table details.expander > summary { padding: 4px 0; }
+.pm-table details.expander .expander__body { padding: 0 0 6px 28px; max-width: 46ch; }
+.pm-rows { display: none; }
+
+/* ---- responsive ----------------------------------------------------------- */
+@media (max-width: 1040px) {
+  .pm-sens { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .pm-industries { grid-template-columns: 1fr; }
+  .pm-compare { grid-template-columns: 1fr; }
+  .pm-sens { grid-template-columns: 1fr; }
+  .pm-headline { font-size: 21px; }
+  .pm-facts > div { grid-template-columns: 1fr; gap: 2px; }
+  /* Phones swap the wide market table for expandable rows. */
+  .pm-table { display: none; }
+  .pm-rows { display: block; }
+}
+@media (max-width: 420px) {
+  .pm-stats { grid-template-columns: 1fr; }
+}

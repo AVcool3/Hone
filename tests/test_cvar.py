@@ -20,6 +20,8 @@ from hone.optimization.cvar import (
 from hone.optimization.mvo import mvo_weights
 from hone.pipeline import synthetic_universe
 
+from frontend_source import built_index, source  # React UI source (see tests/frontend_source.py)
+
 
 @pytest.fixture(scope="module")
 def equity_scenarios():
@@ -358,17 +360,12 @@ class TestCVaREndpoint:
 class TestTailsPage:
     @pytest.fixture(scope="class")
     def html(self):
-        from fastapi.testclient import TestClient
-
-        from hone.web.app import create_app
-
-        return TestClient(create_app()).get("/").text
+        return source("HedgingPage.jsx")
 
     def test_page_exists_and_is_reachable(self, html):
-        assert "PAGES.tails" in html
-        assert '"tails"' in html
+        assert "function TailRisk" in html
+        assert "{ key: 'tail', label: 'Tail risk' }" in html  # a tab: ?tab=tail
         assert "/api/cvar" in html
-        assert 'href="#/tails"' in html  # linked from the hedge page
 
     def test_explains_cvar_without_jargon(self, html):
         assert "when it goes badly, how badly" in html

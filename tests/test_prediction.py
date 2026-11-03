@@ -30,6 +30,8 @@ from hone.prediction.hedge import joint_states, reservation_price
 from hone.prediction.kalshi_client import assemble, curated_catalog, normalize_market
 from hone.web.app import create_app
 
+from frontend_source import built_index, source  # React UI source (see tests/frontend_source.py)
+
 
 def exposure(**kw):
     base = dict(wealth=38_000.0, loss=9_000.0, price=0.35, gamma=1.5)
@@ -342,23 +344,27 @@ class TestPage:
         return client.get("/prediction-markets").text
 
     def test_three_product_tabs(self, html):
-        assert 'data-ac="prediction"' in html
-        assert 'href="/prediction-markets"' in html
-        assert 'data-active="prediction"] .thumb { transform: translateX(200%)' in html
-        assert "calc(33.333% - 2.67px)" in html
+        switcher = source("ProductSwitcher.jsx")
+        assert "PRODUCT_ORDER.map" in switcher
+        assert "'prediction-markets': 'Prediction Markets'" in switcher
+        assert "PRODUCT_ORDER = ['stocks', 'crypto', 'prediction-markets']" in source("lib/products.js")
 
     def test_landing_copy_is_crawler_visible(self, html):
-        assert '<template id="landing-prediction">' in html
-        assert "Your paycheck is already a position." in html
-        assert "Isn't this just gambling?" in html
-        assert "Size my hedge" in html
+        assert "Prediction Markets sizes event" in html  # in the no-JS fallback
+        home = source("marketing/Home.jsx")
+        assert "Your paycheck is already a <em>position.</em>" in home
+        assert "Isn’t this just gambling?" in home
+        assert "Size a sample hedge" in home
 
-    def test_pages_and_routing_exist(self, html):
-        for needle in ("PAGES.size", "PAGES.markets", "PAGES.concepts", "function pmHydrateStart",
-                       '"/prediction-markets")) return "prediction"', "/api/predict/hedge", "/api/predict/markets"):
-            assert needle in html, needle
+    def test_pages_and_routing_exist(self, client):
+        app = source("App.jsx")
+        assert '<Route path="hedge" element={<IncomeHedgePage />} />' in app
+        assert '<Route path="markets" element={<MarketsPage />} />' in app
+        assert "/api/predict/hedge" in source("IncomeHedgePage.jsx")
+        assert "/api/predict/markets" in source("prediction/catalog.js")
+        for path in ("/prediction-markets/app/hedge", "/prediction-markets/app/markets"):
+            assert client.get(path).status_code == 200
 
     def test_concept_numbers_come_from_the_engine_not_the_prose(self, html):
-        """The concepts page fetches its worked example; nothing is typed in."""
-        assert "async function pmFillConcepts" in html
-        assert 's("ceiling")' in html and 'data-pm="${k}"' in html
+        """The homepage's worked example is computed by the engine, live."""
+        assert "'/api/predict/hedge'" in source("marketing/Home.jsx")

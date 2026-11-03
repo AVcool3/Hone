@@ -33,7 +33,7 @@ hone = "hone.cli:main"
 include = ["hone*"]
 
 [tool.setuptools.package-data]
-"hone.web" = ["static/*"]
+"hone.web" = ["static/*", "static/assets/*"]
 "hone.prediction" = ["*.json"]
 
 [tool.pytest.ini_options]

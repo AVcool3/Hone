@@ -15,6 +15,8 @@ from hone.hedging import (
 from hone.optimization.views import View
 from hone.pipeline import rebalance, synthetic_universe
 
+from frontend_source import built_index, source  # React UI source (see tests/frontend_source.py)
+
 
 class TestBlackScholes:
     def test_put_call_parity(self):
@@ -201,19 +203,11 @@ class TestNegativePremium:
         assert plan["needs_hedge"] is True
 
     def test_page_explains_it_rather_than_congratulating(self):
-        from fastapi.testclient import TestClient
-
-        from hone.web.app import create_app
-
-        html = TestClient(create_app()).get("/").text
+        html = source("HedgingPage.jsx", "PortfolioPage.jsx")
         assert "premium_is_negative" in html
         assert "negative expected return" in html
 
     def test_summary_page_does_not_send_a_losing_plan_to_the_broker(self):
-        from fastapi.testclient import TestClient
-
-        from hone.web.app import create_app
-
-        html = TestClient(create_app()).get("/").text
-        assert "negative expected return — revisit your views" in html
+        html = source("HedgingPage.jsx", "PortfolioPage.jsx")
+        assert "negative expected return, so there is no risk budget to hedge to — revisit your views" in html
         assert "a plan you expect to lose" in html

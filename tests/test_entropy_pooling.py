@@ -21,6 +21,8 @@ from hone.optimization.entropy_pooling import (
 )
 from hone.pipeline import synthetic_universe
 
+from frontend_source import built_index, source  # React UI source (see tests/frontend_source.py)
+
 
 @pytest.fixture(scope="module")
 def scenarios():
@@ -373,21 +375,17 @@ class TestPoolingEndpoint:
 class TestFlexibleViewsPage:
     @pytest.fixture(scope="class")
     def html(self):
-        from fastapi.testclient import TestClient
-
-        from hone.web.app import create_app
-
-        return TestClient(create_app()).get("/").text
+        return source("FlexibleViews.jsx")
 
     def test_page_exists_and_is_reachable_from_the_main_flow(self, html):
-        assert "PAGES.flexible" in html
-        assert '"flexible"' in html
         assert "/api/pooling" in html
-        assert 'href="#/flexible"' in html
+        theses = source("ThesesPage.jsx")
+        assert "More view types" in theses  # a tab on Theses: ?tab=more
+        assert "<FlexibleViews" in theses
 
     def test_offers_every_view_type_the_backend_supports(self, html):
         for kind in ("probability", "ranking", "conditional", "volatility", "mean"):
-            assert f'value="{kind}"' in html
+            assert f"value: '{kind}'" in html
 
     def test_explains_the_cost_rather_than_hiding_it(self, html):
         assert "Views only ever cost history" in html
@@ -395,6 +393,6 @@ class TestFlexibleViewsPage:
 
     def test_paired_dropdowns_do_not_both_default_to_the_same_symbol(self, html):
         """"If BTC falls, BTC falls" is degenerate and looks broken."""
-        assert "function shiftFirst" in html
-        assert 'sym("…then this", "fx-b", true)' in html
-        assert 'sym("…against this one", "fx-b", true)' in html
+        assert "const otherThan" in html
+        assert "versus: otherThan(syms, syms[0])" in html  # default differs
+        assert "syms.filter(s => s !== draft.ticker)" in html  # and can't be picked

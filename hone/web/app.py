@@ -7,7 +7,7 @@ POST /api/questionnaire  — choices -> gamma, noise, 50-tier placement
 POST /api/portfolio      — current Alpaca paper positions (or demo data)
 POST /api/optimize       — views -> Black-Litterman + MVO + hedge plan
 POST /api/hedge          — hedge plan only
-GET  /                   — the single-page UI
+GET  /, /:product/...     — the React single-page app (built from frontend/)
 
 Alpaca credentials resolve per request: explicit fields in the request
 body win, otherwise the server's ALPACA_API_KEY / ALPACA_SECRET_KEY
@@ -28,6 +28,7 @@ HONE_PUBLIC
 from __future__ import annotations
 
 import base64
+import mimetypes
 import os
 import secrets
 from contextvars import ContextVar
@@ -351,21 +352,47 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     # ------------------------------------------------------------- static
+    # The frontend is a React single-page app built from frontend/ into
+    # STATIC_DIR (index.html + hashed files under assets/). Every page URL
+    # returns the same index.html and the browser router picks the page.
+    def spa_index() -> FileResponse:
+        # Never cache the shell, so a deploy is picked up on the next load;
+        # the hashed assets it points at are cached forever instead.
+        return FileResponse(
+            STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"}
+        )
+
     @app.get("/", include_in_schema=False)
+    @app.get("/stocks", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+        return spa_index()
 
     @app.get("/crypto", include_in_schema=False)
     @app.get("/crypto/", include_in_schema=False)
     def index_crypto() -> FileResponse:
         """Same single-page app, crypto product (see resolve_asset_class)."""
-        return FileResponse(STATIC_DIR / "index.html")
+        return spa_index()
 
     @app.get("/prediction-markets", include_in_schema=False)
     @app.get("/prediction-markets/", include_in_schema=False)
     def index_prediction() -> FileResponse:
         """Same single-page app, prediction-markets product."""
-        return FileResponse(STATIC_DIR / "index.html")
+        return spa_index()
+
+    @app.get("/assets/{name}", include_in_schema=False)
+    def built_asset(name: str) -> FileResponse:
+        """Hashed JS/CSS from the Vite build. `name` cannot contain '/'."""
+        path = STATIC_DIR / "assets" / name
+        if name.startswith(".") or not path.is_file():
+            raise HTTPException(status_code=404, detail="not found")
+        media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        if name.endswith(".js"):
+            media_type = "application/javascript"
+        return FileResponse(
+            path,
+            media_type=media_type,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
 
     @app.get("/api/health", include_in_schema=False)
     def health() -> dict:
@@ -1633,6 +1660,18 @@ def create_app() -> FastAPI:
             side=req.side,
             **payload,
         )
+
+    # --------------------------------------------------- SPA page routes
+    # Registered last so no /api route can ever be shadowed by it. Deep
+    # links such as /crypto/app/theses or /stocks/methodology/calibration
+    # load the app; anything else under an unknown prefix is a 404.
+    _SPA_PRODUCTS = {"stocks", "crypto", "prediction-markets"}
+
+    @app.get("/{product}/{rest:path}", include_in_schema=False)
+    def spa_page(product: str, rest: str) -> FileResponse:
+        if product not in _SPA_PRODUCTS:
+            raise HTTPException(status_code=404, detail="not found")
+        return spa_index()
 
     return app
 

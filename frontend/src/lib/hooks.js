@@ -59,13 +59,32 @@ export function useOptimize(slug, { auto = false } = {}) {
     }
   }, [gamma, ws, market, product.assetClass, saveResult, sig]);
 
+  // Sample theses are stored as a relative change ("+20%") and only get a
+  // dollar target once useThesisQuotes has fetched a reference price. If the
+  // first auto-calculation ran before that, it would be built with no theses
+  // at all, and then immediately flagged "Needs recalculation" when the
+  // targets arrived — the first thing a new visitor saw. So wait for them.
+  const pendingTargets = ws.theses.some(
+    t => t.included && t.target == null && typeof t.targetChange === 'number',
+  );
+
   const started = useRef(false);
   useEffect(() => {
-    if (auto && !saved && !started.current) {
+    if (!auto || saved || started.current) return;
+    const go = () => {
       started.current = true;
       run();
+    };
+    if (!pendingTargets) {
+      go();
+      return;
     }
-  }, [auto, saved, run]);
+    // Fallback: if a price lookup is slow or fails, calculate anyway after a
+    // few seconds rather than leaving the page empty. (If the targets arrive
+    // first, this effect re-runs, clears the timer, and calculates at once.)
+    const timer = setTimeout(go, 5000);
+    return () => clearTimeout(timer);
+  }, [auto, saved, run, pendingTargets]);
 
   return { result: saved?.data ?? null, at: saved?.at, stale: !!saved && saved.sig !== sig, run, busy, error, sig };
 }

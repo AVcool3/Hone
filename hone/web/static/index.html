@@ -478,7 +478,17 @@
   .basis.close { background: rgba(27,175,122,0.14); color: var(--good); }
   .mkt-series .note { font-size: 13px; color: var(--ink-2); margin: 4px 0 6px; }
   .mkt-series table { font-size: 13.5px; }
-  .mkt-series td button { padding: 5px 10px; min-height: 0; font-size: 12.5px; white-space: nowrap; }
+  /* button.ghost sets min-height: 42px at element+class specificity; these
+     need the same weight to win, in both directions */
+  button.mkt-btn { padding: 5px 10px; min-height: 0; font-size: 12.5px; white-space: nowrap; }
+  details.mkt-series summary { cursor: pointer; list-style: none; padding: 8px 0; }
+  details.mkt-series summary::-webkit-details-marker { display: none; }
+  details.mkt-series summary .hd::before { content: "▸"; color: var(--ink-muted); font-size: 12px; }
+  details.mkt-series[open] summary .hd::before { content: "▾"; }
+  @media (max-width: 700px) {
+    /* a 27px button is a miss on a phone; 44px is the touch standard */
+    button.mkt-btn { min-height: 44px; padding: 8px 14px; font-size: 14px; }
+  }
   .prob-bar { display: inline-block; width: 56px; height: 6px; border-radius: 3px;
               background: var(--grid); vertical-align: middle; margin-right: 6px; position: relative; }
   .prob-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--series-1); }
@@ -502,6 +512,9 @@
   .pstrip .pin.low2::before { content: ""; display: block; width: 2px; height: 36px; margin: 0 auto 2px;
                               background: var(--ink-1); border-radius: 1px; opacity: 0.55; }
   .pstrip .pin b { color: var(--ink-1); font-variant-numeric: tabular-nums; }
+  .barrow.pm-bars { grid-template-columns: 96px 1fr 74px; }
+  .barrow.pm-bars .sym { line-height: 1.2; }
+  .barrow.pm-bars .sym .muted { font-size: 11px; }
   .preset-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0 14px; }
   .preset-chips button { background: var(--surface-1); border: 1px solid var(--border); border-radius: 999px;
     padding: 7px 13px; font: inherit; font-size: 13px; color: var(--ink-2); cursor: pointer; }
@@ -816,18 +829,21 @@
 
     <section class="land">
       <h2>What the output looks like</h2>
+      <!-- The numbers in this box are filled by the sizing engine at load time
+           (pmHydrateStart), never typed in, so the landing page cannot disagree
+           with the tool. The ellipses are what a crawler sees. -->
       <div class="example-box" id="pm-example">
         <div class="in">Input: <b>Aspen ski instructor, $38,000 to live on this season, $9,000 at risk if
           December is thin</b>, hedged with the NO side of “Aspen December snowfall above 20 in” at 35¢ —
-          investor measured at Tier 26 of 50 (moderately risk-averse).</div>
+          risk number <span data-pm="ex_gamma">…</span> (<span data-pm="ex_tier">…</span>).</div>
         <table>
-          <tr><th>Action</th><th>Position</th><th class="num">Cost</th><th>Why</th></tr>
-          <tr><td class="buy">BUY</td><td>7,407 NO contracts</td><td class="num">$2,710</td><td>pays $7,407 if December is thin — 82% of the loss, the rest given up to fees</td></tr>
-          <tr><td></td><td>Worth to you</td><td class="num">+$295</td><td>certainty-equivalent gain at your tier: a sure $295 for the risk removed</td></tr>
-          <tr><td></td><td>Your ceiling</td><td class="num">45¢</td><td>the most your risk aversion should pay per contract; above it, don't</td></tr>
+          <tr><th>What</th><th class="num">Figure</th><th>Meaning</th></tr>
+          <tr><td><span class="buy">BUY</span> <span data-pm="ex_contracts">…</span> NO</td><td class="num"><span data-pm="ex_cost">…</span></td><td>pays <span data-pm="ex_payout">…</span> if December is thin; <span data-pm="ex_cover">…</span> of the loss covered</td></tr>
+          <tr><td>Worth to you</td><td class="num"><span data-pm="ex_gain">…</span></td><td>a sure amount equal to the risk removed, at this risk number</td></tr>
+          <tr><td>Your ceiling</td><td class="num"><span data-pm="ex_ceiling">…</span></td><td>the most to pay per contract; above it, don't</td></tr>
         </table>
-        <p class="muted" style="margin-top:8px">Illustrative — the Aspen December contract was not yet open when this was
-        written. Run the same example on live prices in the sizing tool.</p>
+        <p class="muted" style="margin-top:8px" id="pm-example-note">Illustrative price — the Aspen December contract
+        had not opened when this was written. Run the same example on live prices in the sizing tool.</p>
       </div>
     </section>
 
@@ -853,8 +869,8 @@
 
     <section class="land" id="start-section">
       <h2>Start now</h2>
-      <p class="sub">The sizing tool needs your risk number. Eight questions get it; or bring the one you
-      already measured.</p>
+      <p class="sub">The sizing tool runs on a placeholder risk number until you measure yours. Eight
+      questions replace it; or bring the one you already measured.</p>
       <div id="account-section"></div>
       <div class="navrow">
         <span id="pm-gamma-shortcut"></span>
@@ -1214,7 +1230,8 @@ function startAccountHTML() {
   const u = Auth.user();
   if (!u) return `
     <div class="note" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-      <span>Save your portfolios and reload them from any device.</span>
+      <span>${ASSET_CLASS === "prediction" ? "Save your risk number and reload it from any device."
+                                           : "Save your portfolios and reload them from any device."}</span>
       <span style="display:flex;gap:8px;align-items:center">
         <a href="#/signup"><button class="ghost">Create account</button></a>
         <button class="primary" id="st-open-auth" style="padding:8px 16px">Sign in</button>
@@ -3061,7 +3078,9 @@ function pmSourceLine(cat) {
   const when = cat.as_of ? new Date(cat.as_of).toLocaleString() : "unknown time";
   return `<div class="src-line"><span class="dot${live ? "" : " snap"}"></span>
     ${live ? `Live from Kalshi's public API, fetched ${esc(when)}` :
-      `Bundled snapshot from ${esc(when)} — live prices load in the background; reload in a few seconds`}
+      (cat.live_enabled
+        ? `Bundled snapshot from ${esc(when)} — live prices load in the background; reload in a few seconds`
+        : `Bundled snapshot from ${esc(when)} — this deployment serves the snapshot only; prices are not live`)}
     · Hone holds no Kalshi account and places no orders.</div>`;
 }
 function pmProbCell(p) {
@@ -3097,18 +3116,35 @@ function pmHydrateStart() {
     if (isNaN(v)) { $id("pm-gamma-typed").focus(); return; }
     S.gamma = v; S.profile = null; save(); go("size");
   };
+  /* The worked example's figures come from the engine, at whatever γ this
+     visitor is carrying, so the page never shows a number the tool would
+     not. The γ source is stated because a default is not a measurement. */
+  const d = PM_PRESETS[0];
+  api("/api/predict/hedge", { gamma: g.gamma, wealth: d.wealth, loss: d.loss, price: d.price,
+                              market_prob: d.marketProb, basis_correlation: 1.0, include_fees: true })
+    .then(r => {
+      const put = (k, v) => document.querySelectorAll(`[data-pm="${k}"]`).forEach(el => el.textContent = v);
+      put("ex_gamma", `γ ${r.gamma.toFixed(2)}`);
+      put("ex_tier", `Tier ${r.tier.tier} of 50, ${r.tier.category.toLowerCase()}` +
+          (g.source.startsWith("default") ? " — a placeholder, not your measurement" : ""));
+      put("ex_contracts", fmtN(r.contracts)); put("ex_cost", fmtMoney(r.cost, 0));
+      put("ex_payout", fmtMoney(r.payout_if_pays, 0)); put("ex_cover", fmtPct(r.contracts / d.loss, 0));
+      put("ex_gain", fmtSMoney(r.ce_gain, 0)); put("ex_ceiling", fmtCents(r.reservation_price));
+    }).catch(() => {});
   pmCatalog().then(cat => {
     const box = $id("pm-markets-preview"); if (!box) return;
-    /* one headline market per industry: the most-traded contract with a quote */
+    /* one headline market per industry: the most-traded contract with a
+       quote. Three columns, because a fourth turns into a column of
+       one-word lines on a phone. */
     const rows = cat.industries.map(ind => {
       const all = ind.series.flatMap(se => se.markets.map(m => ({ se, m })));
       const best = all.filter(x => x.m.implied != null).sort((a, b) => b.m.volume - a.m.volume)[0];
-      if (!best) return `<tr><td>${esc(ind.label)}</td><td colspan="3" class="muted">no open contracts in the catalog right now</td></tr>`;
-      return `<tr><td>${esc(ind.label)}</td><td>${esc(best.se.title)}<br><span class="muted">${esc(best.m.label || best.m.title)}</span></td>
+      if (!best) return `<tr><td><b>${esc(ind.label)}</b><br><span class="muted">no open contracts in the catalog right now</span></td><td></td><td></td></tr>`;
+      return `<tr><td><b>${esc(ind.label)}</b><br>${esc(best.se.title)}<br><span class="muted">${esc(best.m.label || best.m.title)}</span></td>
         <td class="num">${pmProbCell(best.m.implied)}</td>
-        <td><button class="ghost" style="padding:5px 10px;min-height:0;font-size:12.5px" data-hedge="${esc(best.m.ticker)}">Hedge with this</button></td></tr>`;
+        <td><button class="ghost mkt-btn" data-hedge="${esc(best.m.ticker)}">Hedge</button></td></tr>`;
     }).join("");
-    box.innerHTML = `<table><tr><th>Who</th><th>Most-traded contract</th><th class="num">Market says</th><th></th></tr>${rows}</table>
+    box.innerHTML = `<table><tr><th>Who · most-traded contract</th><th class="num">Market says</th><th></th></tr>${rows}</table>
       <div style="margin-top:8px">${pmSourceLine(cat)}</div>`;
     box.querySelectorAll("[data-hedge]").forEach(b => b.onclick = () => pmPickMarket(b.dataset.hedge));
   }).catch(e => { const box = $id("pm-markets-preview"); if (box) box.innerHTML = `<div class="error">${esc(e.message)}</div>`; });
@@ -3150,6 +3186,12 @@ function pmSeriesHTML(se) {
     ${se.note ? `<div class="note" style="margin:4px 0 6px;padding:0;background:none">${esc(se.note)} <span class="muted">Hedge side: ${esc(se.bad_side)}.</span></div>`
               : `<div class="note" style="margin:4px 0 6px;padding:0;background:none"><span class="muted">Hedge side: ${esc(se.bad_side)}.</span></div>`}`;
   if (!se.markets.length) return `<div class="mkt-series">${head}<div class="muted">Listed on Kalshi; no contracts open right now (seasonal series list as the season approaches).</div></div>`;
+  /* 41 series × a dozen contracts is 26,000px of page on a phone. Each
+     series folds to one line — title, basis, count, and its most-traded
+     quote — and opens on tap. */
+  const top = [...se.markets].filter(m => m.implied != null).sort((a, b) => b.volume - a.volume)[0];
+  const summary = `<summary><span class="hd"><b>${esc(se.title)}</b>${pmBasisTag(se.basis)}
+      <span class="muted">${se.markets.length} contract${se.markets.length === 1 ? "" : "s"}${top ? ` · most traded: ${esc(top.label || top.title)} at ${Math.round(top.implied * 100)}%` : ""}</span></span></summary>`;
   const rows = se.markets.map(m => {
     const spread = m.spread == null ? `<span class="muted">—</span>` : `${Math.round(m.spread * 100)}¢${m.spread >= 0.2 ? ` <span class="flag warn">wide</span>` : ""}`;
     const yes = (m.yes_ask != null && m.yes_ask < 1) ? fmtCents(m.yes_ask) : `<span class="muted">none</span>`;
@@ -3157,11 +3199,12 @@ function pmSeriesHTML(se) {
     return `<tr><td>${esc(m.label || m.title)}</td><td class="num">${pmProbCell(m.implied)}</td>
       <td class="num">${yes}</td><td class="num">${no}</td><td class="num">${spread}</td>
       <td class="num">${fmtN(m.volume)}</td><td>${pmCloseDate(m.close_time)}</td>
-      <td><button class="ghost" data-hedge="${esc(m.ticker)}">Hedge</button></td></tr>`;
+      <td><button class="ghost mkt-btn" data-hedge="${esc(m.ticker)}">Hedge</button></td></tr>`;
   }).join("");
-  return `<div class="mkt-series">${head}
+  return `<details class="mkt-series">${summary}
+    <div class="note" style="margin:6px 0 0;padding:0;background:none">${se.note ? esc(se.note) + " " : ""}<span class="muted">Hedge side: ${esc(se.bad_side)}. ${esc(se.ticker)}</span></div>
     <table><tr><th>Contract</th><th class="num">Market says</th><th class="num">Buy YES</th><th class="num">Buy NO</th>
-      <th class="num">Spread</th><th class="num">Volume</th><th>Closes</th><th></th></tr>${rows}</table></div>`;
+      <th class="num">Spread</th><th class="num">Volume</th><th>Closes</th><th></th></tr>${rows}</table></details>`;
 }
 
 /* ---- the sizing tool -------------------------------------------------------
@@ -3238,6 +3281,9 @@ PAGES.size = () => {
         : `No measurement on this tab yet — <a class="link" href="#/quiz">eight questions</a> replace the guess.`}</div>
     </details>
     <div id="pm-err"></div>
+    ${g.source.startsWith("default") ? `<div class="note" id="pm-default-note">Sizing with a placeholder risk number
+      (γ 1.50, Tier 26). That is a default, not a measurement of you —
+      <a class="link" href="#/quiz">eight questions</a> make every figure below yours.</div>` : ""}
     <div class="navrow"><button class="ghost" onclick="go('start')">&larr; Back</button>
       <button class="primary" id="pm-run">Size my hedge →</button></div>
     <div id="pm-out"></div>
@@ -3296,6 +3342,11 @@ PAGES.size = () => {
   document.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
     S.pm = { preset: b.dataset.preset }; save(); PAGES.size();
   });
+  /* Remember whether the γ in the form is the placeholder, so the result can
+     say so next to the tier it prints. Typing a γ into the advanced field
+     makes it the user's own. */
+  RUNTIME.pmGammaIsDefault = g.source.startsWith("default");
+  $id("pm-gamma").addEventListener("input", () => { RUNTIME.pmGammaIsDefault = false; });
   $id("pm-run").onclick = () => pmRunHedge(currentSide, preset);
   if (RUNTIME.pmPlan && RUNTIME.pmPlanKey === JSON.stringify(S.pm)) pmRenderPlan(RUNTIME.pmPlan);
 };
@@ -3361,11 +3412,19 @@ function pmRenderPlan(r) {
     <div class="tile"><div class="k">Your ceiling</div><div class="v">${fmtCents(r.reservation_price)}</div><div class="s">most you should pay · market asks ${fmtCents(r.price)}</div></div>
   </div>`;
 
-  /* two to four states: income outcome × contract outcome */
-  const label = (s) => `${s.loss ? "thin" : "good"} ${s.pays ? "✓" : "✗"}`;
+  /* two to four states: income outcome × contract outcome. Bars start at
+     zero (a floored axis would exaggerate the hedge) and carry the hedged
+     dollar figure, which is the number the person will actually live on. */
   const maxW = Math.max(...r.states.flatMap(s => [s.wealth_unhedged, s.wealth_hedged]));
-  const bars = barsCompare(r.states.map(s => ({ symbol: label(s), current: s.wealth_unhedged / maxW, target: s.wealth_hedged / maxW })), 1)
-    .replace(/<div class="val">[^<]*<\/div>/g, "");  // fractions of max are not a useful readout
+  const bars = r.states.map(s => `
+    <div class="barrow pm-bars">
+      <div class="sym">${s.loss ? "bad season" : "good season"}<br><span class="muted">${s.pays ? "contract pays" : "no payout"}</span></div>
+      <div class="track2"><div class="baseline"></div>
+        <div class="bar t" style="width:${100 * s.wealth_hedged / maxW}%" title="with hedge ${fmtMoney(s.wealth_hedged, 0)}"></div>
+        <div class="bar c" style="width:${100 * s.wealth_unhedged / maxW}%" title="without ${fmtMoney(s.wealth_unhedged, 0)}"></div>
+      </div>
+      <div class="val">${fmtMoney(s.wealth_hedged, 0)}</div>
+    </div>`).join("");
   const stateRows = r.states.map(s => `<tr>
     <td>${s.loss ? `<span class="state-bad">Bad season</span>` : `<span class="state-good">Good season</span>`}, contract ${s.pays ? "pays" : "pays nothing"}</td>
     <td class="num">${fmtPct(s.prob, 0)}</td><td class="num">${fmtMoney(s.wealth_unhedged, 0)}</td>
@@ -3400,10 +3459,13 @@ function pmRenderPlan(r) {
     ${r.gamma.toFixed(2)} stakes <b>${fmtPct(Math.abs(r.crra_fraction), 1)}</b>${r.gamma > 1 ? ` — about ${(Math.abs(r.crra_fraction) / Math.max(Math.abs(r.kelly_fraction), 1e-9)).toFixed(2)}× Kelly, which is where the phrase “fractional Kelly” comes from` : ""}.</div>` : `
     <h2>Why this size: insurance first, then the bet</h2>
     <table>
-      <tr><th>Piece</th><th class="num">Contracts</th><th>What it is</th></tr>
-      <tr><td>Pure hedge</td><td class="num">${fmtN(pure)}</td><td>your loss × how tightly the market tracks it (${fmtPct(r.basis_correlation, 0)}) — the position that minimizes the swing in your season, regardless of price</td></tr>
-      <tr><td>Adjustment</td><td class="num ${adj >= 0 ? "buy" : "sell"}">${adj >= 0 ? "+" : "−"}${fmtN(adj)}</td><td>${whyAdj}; scaled down by your γ</td></tr>
-      <tr><td><b>Position</b></td><td class="num"><b>${r.contracts < 0 ? "−" : ""}${fmtN(r.contracts)}</b></td><td>what maximizing your expected utility actually picks</td></tr>
+      <tr><th>Piece</th><th class="num">Contracts</th></tr>
+      <tr><td>Pure hedge</td><td class="num">${fmtN(pure)}</td></tr>
+      <tr class="reason"><td colspan="2">your loss × how tightly the market tracks it (${fmtPct(r.basis_correlation, 0)}) — the position that minimizes the swing in your season, regardless of price</td></tr>
+      <tr><td>Adjustment</td><td class="num ${adj >= 0 ? "buy" : "sell"}">${adj >= 0 ? "+" : "−"}${fmtN(adj)}</td></tr>
+      <tr class="reason"><td colspan="2">${whyAdj}; scaled down by your γ</td></tr>
+      <tr><td><b>Position</b></td><td class="num"><b>${r.contracts < 0 ? "−" : ""}${fmtN(r.contracts)}</b></td></tr>
+      <tr class="reason"><td colspan="2">what maximizing your expected utility actually picks</td></tr>
     </table>
     <div class="muted" style="margin-top:8px">Rule of thumb behind the exact answer: contracts ≈ ρ·L + W·(q − c) / (γ·q·(1 − q)).
       The first term is the insurance; the second is the bet, and it shrinks with γ. The number above comes from the full
@@ -3432,7 +3494,8 @@ function pmRenderPlan(r) {
 
   $id("pm-out").innerHTML = `
     <div class="result-head" style="margin-top:28px">${verdict}
-      <span class="muted">Tier ${r.tier.tier} of 50 · ${esc(r.tier.category)} · blended odds ${fmtPct(r.belief, 0)}</span></div>
+      <span class="muted">${RUNTIME.pmGammaIsDefault ? `placeholder γ ${r.gamma.toFixed(2)} (Tier ${r.tier.tier} — not measured)`
+        : `Tier ${r.tier.tier} of 50 · ${esc(r.tier.category)}`} · blended odds ${fmtPct(r.belief, 0)}</span></div>
     ${tiles}${warns}${calNote}${season}${decomp}${pricing}
     <div class="note">This is decision support, not advice. Kalshi's book, position limits, fees and the exact resolution
     rule are yours to check before trading, and the contract settles on its own schedule, not when your paycheck does.
@@ -3494,9 +3557,8 @@ PAGES.concepts = () => {
       and with how uncertain the event is. At a fair price with no fees the bet is zero and <i>any</i> risk-averse person
       hedges the whole loss.</p>
       <p>For the instructor: pure hedge ${s("pure")} contracts, adjustment ${s("adj")}, position <b>${s("contracts")}</b>
-      — costing ${s("cost")} and paying ${s("payout")} if December is thin. The adjustment is negative here only because
-      fees make each contract cost slightly more than its fair price; the tool labels the two pieces separately every time
-      so you can see when a “hedge” has quietly become a bet.</p>`,
+      — costing ${s("cost")} and paying ${s("payout")} if December is thin. ${s("adj_why", "The adjustment reflects fees and your risk number.")}
+      The tool labels the two pieces separately every time so you can see when a “hedge” has quietly become a bet.</p>`,
       `Where it lives: ρ·L is the <b>beta-sized index short</b> in hone/hedging — the minimum-variance hedge. The bet
       term is the <b>mean-variance objective</b> w'μ − (γ/2)w'Σw with one asset.`)}
 
@@ -3602,6 +3664,10 @@ async function pmFillConcepts(gamma) {
     put("payout", fmtMoney(r.payout_if_pays, 0)); put("pure", fmtN(r.pure_hedge_contracts));
     put("adj", (r.speculative_contracts >= 0 ? "+" : "−") + fmtN(r.speculative_contracts));
     put("ce_hd", fmtMoney(r.ce_hedged, 0)); put("ce_gain", fmtSMoney(r.ce_gain, 0));
+    put("adj_why", r.speculative_contracts < -0.5
+      ? (gamma < 1 ? `The adjustment is negative because fees make each contract cost slightly more than its fair price, and a risk number below 1 would rather keep most of the risk than pay for cover.`
+                   : `The adjustment is negative only because fees make each contract cost slightly more than its fair price.`)
+      : (r.speculative_contracts > 0.5 ? `The adjustment is positive: at this γ the contract looks cheap.` : `There is no adjustment: the price is fair and the hedge is the whole loss.`));
     put("ceiling", fmtCents(r.reservation_price)); put("ceiling_gap", fmtCents(r.reservation_price - r.price));
     put("b_contracts", fmtN(rb.contracts)); put("b_gain", fmtSMoney(rb.ce_gain, 0));
   } catch (e) { /* leave the ellipses */ }

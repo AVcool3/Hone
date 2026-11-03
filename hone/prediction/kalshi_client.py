@@ -382,7 +382,7 @@ def assemble(data: dict[str, Any], fallback: dict[str, Any] | None = None) -> di
                          "open_count": len(got.get("markets", []))})
         out.append({"key": ind["key"], "label": ind["label"], "who": ind["who"], "series": rows})
     return {"as_of": data.get("as_of"), "source": data.get("source", "snapshot"),
-            "industries": out}
+            "live_enabled": live_enabled(), "industries": out}
 
 
 _CACHE: dict[str, Any] = {"data": None, "fetched_at": 0.0}

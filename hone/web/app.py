@@ -36,7 +36,7 @@ from pathlib import Path
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from ..hedging.hedge import portfolio_beta, portfolio_volatility, revealed_gamma
 from ..market_data.alpaca_client import AlpacaClient, AlpacaError
@@ -217,6 +217,38 @@ def _tier_info(gamma: float) -> s.TierInfo:
     )
 
 
+#: <head> tags on index.html that name the stocks product, and what the
+#: prediction-markets route serves instead.  Kept as literal pairs so a
+#: change to the static markup fails loudly in tests rather than silently
+#: leaving the old title in place.
+_PREDICTION_HEAD = [
+    ("<title>Hone — Personalized Portfolio Optimization | Turn your views into position sizes</title>",
+     "<title>Hone Markets — Hedge the income risk you already carry | Event contracts, sized to your number</title>"),
+    ('<meta name="description" content="Hone turns your investment opinions into disciplined position sizes. '
+     'Measure your risk tolerance with a 5-minute experiment, enter what you believe about a stock, and see the '
+     'portfolio those beliefs imply — then test it safely with paper trading.">',
+     '<meta name="description" content="If your income rises and falls with snowfall, ad budgets or hiring, you '
+     'already hold a position. Hone Markets measures your risk aversion and sizes the Kalshi event contract that '
+     'hedges it — in contracts, in dollars, with the insurance premium made explicit.">'),
+    ('<link rel="canonical" href="https://studiohone.com/">',
+     '<link rel="canonical" href="https://studiohone.com/prediction-markets">'),
+    ('<meta property="og:title" content="Hone — Personalized Portfolio Optimization">',
+     '<meta property="og:title" content="Hone Markets — Hedge the income risk you already carry">'),
+    ('<meta property="og:url" content="https://studiohone.com/">',
+     '<meta property="og:url" content="https://studiohone.com/prediction-markets">'),
+    ('<meta name="twitter:title" content="Hone — Personalized Portfolio Optimization">',
+     '<meta name="twitter:title" content="Hone Markets — Hedge the income risk you already carry">'),
+]
+
+
+def _prediction_head(html: str) -> str:
+    for old, new in _PREDICTION_HEAD:
+        if old not in html:
+            raise RuntimeError(f"index.html no longer contains the head tag to swap: {old[:60]}")
+        html = html.replace(old, new, 1)
+    return html
+
+
 def _public_mode() -> bool:
     return os.environ.get("HONE_PUBLIC", "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -363,9 +395,15 @@ def create_app() -> FastAPI:
 
     @app.get("/prediction-markets", include_in_schema=False)
     @app.get("/prediction-markets/", include_in_schema=False)
-    def index_prediction() -> FileResponse:
-        """Same single-page app, prediction-markets product."""
-        return FileResponse(STATIC_DIR / "index.html")
+    def index_prediction() -> HTMLResponse:
+        """Same single-page app, prediction-markets product.
+
+        The static <head> describes the stocks product. A crawler never runs
+        the script that retitles the page, so the title, description,
+        canonical URL and link-preview tags are swapped here, server-side,
+        for this route only.
+        """
+        return HTMLResponse(_prediction_head(STATIC_DIR.joinpath("index.html").read_text(encoding="utf-8")))
 
     @app.get("/api/health", include_in_schema=False)
     def health() -> dict:

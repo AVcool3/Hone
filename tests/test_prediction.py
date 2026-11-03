@@ -362,3 +362,86 @@ class TestPage:
         """The concepts page fetches its worked example; nothing is typed in."""
         assert "async function pmFillConcepts" in html
         assert 's("ceiling")' in html and 'data-pm="${k}"' in html
+
+
+class TestItDoesNotLieAboutItself:
+    """Every assertion here is a claim the tab used to make that was not true,
+    found by opening it on a phone rather than by reading the code."""
+
+    @pytest.fixture(scope="class")
+    def html(self, client):
+        return client.get("/prediction-markets").text
+
+    def test_the_served_head_describes_this_product_not_the_stocks_one(self, client):
+        """A crawler never runs the script that retitles the page."""
+        html = client.get("/prediction-markets").text
+        assert "<title>Hone Markets" in html
+        assert '<link rel="canonical" href="https://studiohone.com/prediction-markets">' in html
+        assert 'property="og:title" content="Hone Markets' in html
+        assert "Personalized Portfolio Optimization | Turn" not in html
+        # and the stocks page is untouched
+        home = client.get("/").text
+        assert "<title>Hone — Personalized Portfolio Optimization" in home
+        assert '<link rel="canonical" href="https://studiohone.com/">' in home
+
+    def test_head_swap_fails_loudly_if_the_markup_drifts(self):
+        from hone.web.app import _prediction_head
+
+        with pytest.raises(RuntimeError):
+            _prediction_head("<html><head><title>something else</title></head></html>")
+
+    def test_landing_example_numbers_come_from_the_engine(self, html):
+        """The worked example used to be typed in; it would have drifted the
+        first time the fee model changed."""
+        tpl = html.split('<template id="landing-prediction">', 1)[1].split("</template>", 1)[0]
+        for k in ("ex_contracts", "ex_cost", "ex_gain", "ex_ceiling", "ex_tier"):
+            assert f'data-pm="{k}"' in tpl, k
+        assert "7,407" not in tpl and "$2,710" not in tpl and "Tier 26" not in tpl
+
+    def test_a_placeholder_gamma_is_called_a_placeholder(self, html):
+        """The result printed "Tier 26 · Moderately risk-averse" for a visitor
+        who had never answered a question."""
+        assert "a default, not a measurement" in html
+        assert "placeholder γ ${r.gamma.toFixed(2)}" in html
+        assert "runs on a placeholder risk number until you measure yours" in html
+        assert "The sizing tool needs your risk number" not in html
+
+    def test_snapshot_line_does_not_promise_a_refresh_that_is_off(self, client, html):
+        body = client.get("/api/predict/markets?live=false").json()
+        assert "live_enabled" in body
+        assert "this deployment serves the snapshot only" in html
+
+    def test_account_box_does_not_offer_portfolios_on_a_tab_without_them(self, html):
+        assert "Save your risk number and reload it from any device" in html
+
+    def test_concepts_explanation_of_the_adjustment_is_generated(self, html):
+        assert 'put("adj_why"' in html
+        assert "The adjustment is negative here only because" not in html
+
+
+class TestPhone:
+    @pytest.fixture(scope="class")
+    def html(self, client):
+        return client.get("/prediction-markets").text
+
+    def test_market_series_fold_on_a_phone(self, html):
+        """41 open series × a dozen contracts was 26,000px of page."""
+        assert '<details class="mkt-series">' in html
+        assert "details.mkt-series summary" in html
+
+    def test_hedge_buttons_reach_the_touch_standard_on_phones(self, html):
+        import re
+        m = re.search(r"@media \(max-width: 700px\) \{\s*/\*[^*]*\*/\s*button\.mkt-btn \{([^}]*)\}", html)
+        assert m and "min-height: 44px" in m.group(1)
+
+    def test_no_four_column_tables_in_the_landing_template(self, html):
+        """A fourth column on a 390px screen becomes a column of one-word lines."""
+        import re
+        tpl = html.split('<template id="landing-prediction">', 1)[1].split("</template>", 1)[0]
+        for table in re.findall(r"<table>(.*?)</table>", tpl, re.S):
+            header = re.search(r"<tr>(.*?)</tr>", table, re.S).group(1)
+            assert header.count("<th") <= 3
+
+    def test_state_bars_carry_dollar_labels(self, html):
+        assert 'class="barrow pm-bars"' in html
+        assert '<div class="val">${fmtMoney(s.wealth_hedged, 0)}</div>' in html

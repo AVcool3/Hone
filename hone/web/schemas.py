@@ -704,4 +704,6 @@ class PredictionCatalogResponse(BaseModel):
     as_of: str | None
     #: "live", "live-partial" or "snapshot"
     source: str
+    #: whether this deployment refreshes from Kalshi at all (HONE_KALSHI_LIVE)
+    live_enabled: bool = True
     industries: list[PredictionIndustryOut]

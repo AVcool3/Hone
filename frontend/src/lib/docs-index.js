@@ -20,6 +20,7 @@ export const DOC_INDEX = {
   'conviction-backtest': { file: 'BACKTEST_CONVICTION.md', title: 'Do convictions actually help?', blurb: 'Walk-forward simulation over a population of investors: skill, confidence, calibration.' },
   'behavior-gap': { file: 'BEHAVIOR_GAP.md', title: 'The behaviour gap', blurb: 'What returns look like once the investor is allowed to panic-sell.' },
   accounts: { file: 'SUPABASE.md', title: 'Accounts & saved portfolios', blurb: 'Optional sign-in with Supabase: setup in three steps.' },
+  brokerages: { file: 'BROKERAGES.md', title: 'Linking brokerages', blurb: 'Read holdings from Schwab, Fidelity, Robinhood and more through SnapTrade.' },
 };
 
 /** Which docs appear under each destination, per product. Order matters. */
@@ -27,12 +28,12 @@ export const DOC_GROUPS = {
   stocks: {
     methodology: ['risk-elicitation', 'calibration', 'flexible-views', 'tail-risk', 'qlora', 'vision', 'roadmap'],
     backtests: ['conviction-backtest', 'behavior-gap'],
-    setup: ['how-hone-works', 'accounts'],
+    setup: ['how-hone-works', 'brokerages', 'accounts'],
   },
   crypto: {
     methodology: ['crypto-research', 'risk-elicitation', 'calibration', 'flexible-views', 'tail-risk', 'qlora'],
     backtests: ['conviction-backtest', 'behavior-gap'],
-    setup: ['how-hone-works', 'accounts'],
+    setup: ['how-hone-works', 'brokerages', 'accounts'],
   },
   'prediction-markets': {
     methodology: ['prediction-markets', 'risk-elicitation', 'calibration'],

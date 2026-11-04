@@ -59,7 +59,7 @@ export function makeThesis(partial = {}) {
 
 function defaultWorkspace(slug) {
   return {
-    dataSource: 'sample',            // 'sample' | 'alpaca'
+    dataSource: 'sample',            // 'sample' | 'alpaca' | 'brokers'
     theses: (SAMPLE_THESES[slug] || []).map(t => makeThesis({ ...t, sample: true })),
     maxWeight: 0.35,                 // largest single position the optimizer may propose
     useCalibration: true,            // apply your track-record confidence map when it's actionable
@@ -144,6 +144,9 @@ export function StoreProvider({ children }) {
     for (const [slug, p] of Object.entries(PRODUCTS)) out[slug] = migrateLegacyJournal(slug, p.assetClass);
     return out;
   });
+  // Linked brokerages (SnapTrade): { userId, secret } or null. Shared by all
+  // products — the same accounts feed Stocks (shares) and Crypto (coins).
+  const [broker, setBrokerState] = useState(() => readJSON(KEYS.broker, null));
   // Large or short-lived results (backtests, market catalogs) live in memory only.
   const [runtime, setRuntime] = useState({});
 
@@ -154,6 +157,7 @@ export function StoreProvider({ children }) {
     if (alpaca.remember) { writeJSON(KEYS.alpaca, alpaca); writeJSON(KEYS.alpaca, null, 'session'); }
     else { writeJSON(KEYS.alpaca, null); writeJSON(KEYS.alpaca, alpaca, 'session'); }
   }, [alpaca]);
+  useEffect(() => { writeJSON(KEYS.broker, broker); }, [broker]);
   useEffect(() => {
     for (const [slug, ws] of Object.entries(workspaces)) writeJSON(KEYS.ws(slug), ws);
   }, [workspaces]);
@@ -166,6 +170,8 @@ export function StoreProvider({ children }) {
     setProfileState(prev => ({ ...prev, ...(typeof patch === 'function' ? patch(prev) : patch) }));
   }, []);
   const setAlpaca = useCallback(patch => setAlpacaState(prev => ({ ...prev, ...patch })), []);
+  /** Replace the brokerage link (null removes it). */
+  const setBroker = useCallback(link => setBrokerState(link || null), []);
   const updateWs = useCallback((slug, patch) => {
     setWorkspaces(prev => {
       const cur = prev[slug];
@@ -182,8 +188,8 @@ export function StoreProvider({ children }) {
   const setRuntimeKey = useCallback((key, value) => setRuntime(prev => ({ ...prev, [key]: value })), []);
 
   const value = useMemo(
-    () => ({ profile, setProfile, alpaca, setAlpaca, workspaces, updateWs, resetWs, journals, setJournal, runtime, setRuntimeKey }),
-    [profile, setProfile, alpaca, setAlpaca, workspaces, updateWs, resetWs, journals, setJournal, runtime, setRuntimeKey],
+    () => ({ profile, setProfile, alpaca, setAlpaca, broker, setBroker, workspaces, updateWs, resetWs, journals, setJournal, runtime, setRuntimeKey }),
+    [profile, setProfile, alpaca, setAlpaca, broker, setBroker, workspaces, updateWs, resetWs, journals, setJournal, runtime, setRuntimeKey],
   );
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
 }
@@ -211,7 +217,10 @@ export function useWorkspace(slug) {
   const product = productFromSlug(slug);
   const ws = store.workspaces[product.slug];
   const update = useCallback(patch => store.updateWs(product.slug, patch), [store.updateWs, product.slug]);
-  const market = useMemo(() => marketBody(ws.dataSource, store.alpaca), [ws.dataSource, store.alpaca]);
+  const market = useMemo(
+    () => marketBody(ws.dataSource, store.alpaca, store.broker),
+    [ws.dataSource, store.alpaca, store.broker],
+  );
 
   /** Store a result alongside the signature of the inputs that produced it. */
   const saveResult = useCallback(

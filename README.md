@@ -45,7 +45,7 @@ each at its own URL, rather than a step-by-step flow:
 | Hedging (`hedging`) | Hedge plan, stress scenarios, tail risk (CVaR) |
 | Track record (`record`) | Decision journal, calibration, training-data export |
 | Backtest (`backtest`) | Walk-forward backtest at your risk level, with the behaviour gap |
-| Data & account (`settings`) | Sample data vs. Alpaca paper account, optional sign-in |
+| Data & account (`settings`) | Sample data, linked brokerages, or an Alpaca paper account; optional sign-in |
 
 Prediction Markets has its own tools: `hedge` (size an income hedge) and
 `markets` (browse the Kalshi catalog). Public pages per product: overview,
@@ -80,7 +80,7 @@ AnimatedContent, SlideCommit, SpotlightCard, RubberSegment, SquishSwitch).
 ```
 hone/
 ├── risk_profile/    # questionnaire, MLE, 50 tiers, DOSE adaptive elicitation
-├── market_data/     # Alpaca client, covariance (internal)
+├── market_data/     # Alpaca client, SnapTrade brokerages, covariance
 ├── optimization/    # MVO, views, Black-Litterman, CVaR, entropy pooling
 ├── hedging/         # shorts, puts, collars, Black-Scholes
 ├── journal/         # decision journal, Brier scoring, learned confidence
@@ -103,6 +103,8 @@ Two environment variables control the deployment posture:
 |---|---|
 | `HONE_PUBLIC=1` | The server refuses to use its own `ALPACA_*` env keys — every visitor must enter their own keys in the page. **Set this on anything strangers can reach** (the Dockerfile sets it by default). |
 | `HONE_ACCESS_PASSWORD` | When set, the whole site sits behind HTTP Basic auth with this password (any username). Use it for a private personal deployment. |
+| `SNAPTRADE_CLIENT_ID`, `SNAPTRADE_CONSUMER_KEY` | Turn on **linked brokerages**: users read real holdings from Schwab, Fidelity, Robinhood and more. See [docs/BROKERAGES.md](docs/BROKERAGES.md). |
+| `ALPACA_DATA_API_KEY`, `ALPACA_DATA_SECRET_KEY` | Alpaca keys used only for price history (never to read an account), so they're safe on a public server. Linked-brokerage portfolios need them. |
 
 `/api/health` is always open for platform health checks.
 
@@ -224,6 +226,18 @@ HONE_KALSHI_LIVE=0 python -m hone serve                 # serve the snapshot onl
 
 Theory, derivations, the catalog and the limitations are in
 [docs/PREDICTION_MARKETS.md](docs/PREDICTION_MARKETS.md).
+
+## Linked brokerages (optional)
+
+Users can link every brokerage they use (Schwab, Fidelity, Robinhood,
+Interactive Brokers, Webull, Coinbase and more) through
+[SnapTrade](https://snaptrade.com), and Hone combines all their accounts into
+one portfolio. Links are read-only, users sign in on SnapTrade's page (Hone
+never sees a brokerage password), and positions Hone can't model (cash,
+options, mutual funds, non-USD listings) are listed with the reason rather
+than silently dropped. Prices still come from Alpaca market data. Off until
+`SNAPTRADE_CLIENT_ID` / `SNAPTRADE_CONSUMER_KEY` are set; on a public server,
+linking requires sign-in. Setup: [docs/BROKERAGES.md](docs/BROKERAGES.md).
 
 ## Accounts & saved portfolios (optional)
 
@@ -352,6 +366,7 @@ export ANTHROPIC_API_KEY=...   # without it, the offline parser is used
 - [docs/QLORA.md](docs/QLORA.md) — personalizing the compiler: few-shot now, fine-tuning when the data justifies it.
 - [docs/CALIBRATION.md](docs/CALIBRATION.md) — the decision journal, Brier scoring, and learned confidence.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — where it's going.
+- [docs/BROKERAGES.md](docs/BROKERAGES.md) — linking real brokerages through SnapTrade.
 - [docs/SUPABASE.md](docs/SUPABASE.md) — enabling accounts & saved portfolios.
 - [docs/CRYPTO_RESEARCH.md](docs/CRYPTO_RESEARCH.md) — Hone Crypto: literature, parameters, limitations.
 - [docs/PREDICTION_MARKETS.md](docs/PREDICTION_MARKETS.md) — Hone Markets: hedging cyclical income with Kalshi event contracts.

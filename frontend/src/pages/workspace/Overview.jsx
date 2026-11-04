@@ -60,7 +60,7 @@ function PortfolioOverview({ product }) {
       {/* 1. Summary row — four numbers, no more. */}
       <div className="card mb-5">
         <div className="stat-row">
-          <Stat label="Portfolio value" value={value ? fmtMoney(value) : '—'} note={ws.dataSource === 'alpaca' ? 'Alpaca paper account' : 'Sample portfolio'} />
+          <Stat label="Portfolio value" value={value ? fmtMoney(value) : '—'} note={ws.dataSource === 'brokers' ? 'Linked brokerages (modelled holdings)' : ws.dataSource === 'alpaca' ? 'Alpaca paper account' : 'Sample portfolio'} />
           <Stat
             label="Risk aversion"
             value={risk.isSample ? 'Sample' : risk.profile.tier?.category ?? fmtGamma(risk.gamma)}
@@ -131,7 +131,7 @@ function PortfolioOverview({ product }) {
           <div className="stack">
             {risk.isSample && <Notice tone="attention" title="You’re using a sample risk profile.">Position sizes depend heavily on it. <Link to={appPath(slug, 'risk')}>Assess yours</Link> in about two minutes.</Notice>}
             {ws.theses.some(t => t.sample) && <Notice>The theses marked <b>Sample</b> are illustrations. <Link to={appPath(slug, 'theses')}>Replace them with your own views</Link>.</Notice>}
-            {ws.dataSource !== 'alpaca' && <Notice>Prices and holdings are synthetic sample data. <Link to={appPath(slug, 'settings')}>Connect an Alpaca paper account</Link> to use your own.</Notice>}
+            {ws.dataSource === 'sample' && <Notice>Prices and holdings are synthetic sample data. <Link to={appPath(slug, 'settings')}>Link your brokerages or an Alpaca paper account</Link> to use your own.</Notice>}
             {product.volatilityNote && <Notice tone="attention">{product.volatilityNote}</Notice>}
             <p className="tiny subtle">How the numbers are made: <Link to={docPath(slug, 'methodology')}>Methodology</Link> · <Link to={docPath(slug, 'backtests')}>Backtests</Link></p>
           </div>

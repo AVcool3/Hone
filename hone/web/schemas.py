@@ -55,14 +55,39 @@ class ProfileResponse(BaseModel):
 
 
 # ------------------------------------------------------------------ market
-class AlpacaCredentials(BaseModel):
-    """Optional per-request keys; fall back to server env vars.
+class BrokerLink(BaseModel):
+    """A user's SnapTrade identity: which linked brokerages to read.
 
-    Keys are used for the single request and never stored server-side.
+    Created by ``POST /api/broker/connect`` and kept by the user (browser, and
+    their own Supabase row when signed in). Sent with each request like the
+    Alpaca keys, and never stored server-side. Useless on its own: every
+    SnapTrade call is also signed with the server's consumer key.
+    """
+
+    user_id: str = Field(min_length=1, max_length=128)
+    user_secret: str = Field(min_length=1, max_length=256)
+    #: Limit to these SnapTrade account ids; empty/None = every linked account.
+    account_ids: list[str] | None = None
+
+
+class AlpacaCredentials(BaseModel):
+    """Where this request's holdings and prices come from.
+
+    * ``api_key`` / ``secret_key`` — an Alpaca paper account (holdings + prices).
+      Fall back to server env vars unless the server runs with HONE_PUBLIC.
+    * ``broker`` — holdings from brokerages linked through SnapTrade instead.
+      Prices then come from Alpaca market data (these keys if given, else the
+      server's market-data-only keys).
+
+    Everything here is used for the single request and never stored server-side.
     """
 
     api_key: str | None = None
     secret_key: str | None = None
+    broker: BrokerLink | None = None
+    #: "brokers" when the user chose linked brokerages — lets the server say
+    #: "nothing linked yet" instead of falling back to the Alpaca account.
+    source: str | None = None
 
 
 class PortfolioRequest(BaseModel):
@@ -90,11 +115,84 @@ class PortfolioAnalysis(BaseModel):
     market_premium_assumption: float
 
 
+class SkippedHoldingOut(BaseModel):
+    """A position that exists at the broker but isn't in the model, and why."""
+
+    symbol: str
+    reason: str
+    market_value: float | None = None
+    account: str | None = None
+
+
 class PortfolioResponse(BaseModel):
     demo: bool
     positions: list[PositionOut]
     portfolio_value: float | None = None
     analysis: PortfolioAnalysis | None = None
+    #: "sample", "alpaca" or "brokerages" — where these holdings came from.
+    source: str | None = None
+    #: Linked-brokerage mode: the accounts combined, and what was left out.
+    accounts: list[str] = Field(default_factory=list)
+    skipped: list[SkippedHoldingOut] = Field(default_factory=list)
+
+
+# ------------------------------------------------------------ brokerages
+class BrokerConnectRequest(BaseModel):
+    """Start (or continue) linking brokerages through SnapTrade."""
+
+    #: The existing link, if this user already has one.
+    link: BrokerLink | None = None
+    #: Without sign-in (private servers only): a random id the browser made,
+    #: so the same browser keeps the same SnapTrade user.
+    local_id: str | None = Field(default=None, max_length=64)
+    #: Where SnapTrade should send the user back to (must be this site).
+    redirect_url: str | None = Field(default=None, max_length=2048)
+    #: Repair a connection that stopped syncing (its connection id).
+    reconnect: str | None = Field(default=None, max_length=128)
+    #: Replace a SnapTrade user whose secret was lost (drops its connections).
+    reset: bool = False
+
+
+class BrokerConnectResponse(BaseModel):
+    redirect_url: str
+    #: Returned whenever the link is new or changed — the browser must keep it.
+    link: BrokerLink
+
+
+class BrokerLinkRequest(BaseModel):
+    link: BrokerLink
+
+
+class BrokerDisconnectRequest(BaseModel):
+    link: BrokerLink
+    connection_id: str = Field(min_length=1, max_length=128)
+
+
+class BrokerConnectionOut(BaseModel):
+    id: str
+    brokerage: str
+    logo_url: str | None = None
+    #: True when the broker stopped sharing data (password changed, etc.) —
+    #: the user needs to reconnect it.
+    disabled: bool = False
+    created: str | None = None
+
+
+class BrokerAccountOut(BaseModel):
+    id: str
+    connection_id: str | None = None
+    label: str           # "Schwab · Brokerage ••1234" — never the full number
+    institution: str
+    value: float | None = None
+    currency: str | None = None
+    is_paper: bool = False
+    #: False for bank/credit/annuity accounts, which Hone doesn't model.
+    investment: bool = True
+
+
+class BrokerAccountsResponse(BaseModel):
+    connections: list[BrokerConnectionOut]
+    accounts: list[BrokerAccountOut]
 
 
 # ---------------------------------------------------------------- optimize

@@ -50,7 +50,8 @@ export function ErrorNotice({ error, onRetry, settingsTo }) {
   if (!error) return null;
   const kind = error.kind;
   const title =
-    kind === 'credentials' ? 'Your Alpaca keys were not accepted.'
+    kind === 'brokerage' ? 'Your brokerage link needs attention.'
+      : kind === 'credentials' ? 'Your Alpaca keys were not accepted.'
       : kind === 'data' ? 'Market data isn’t available for this request.'
         : kind === 'network' ? 'Can’t reach the server.'
           : kind === 'input' ? 'Something in the inputs needs fixing.'
@@ -91,10 +92,15 @@ export const Badge = ({ tone = '', children, title }) => (
 
 /** Labels where numbers came from: sample data vs. the user's own account. */
 export function SourceBadge({ dataSource }) {
+  if (dataSource === 'brokers') return <Badge tone="live" title="Holdings from every brokerage you linked, combined">Your brokerages</Badge>;
   return dataSource === 'alpaca'
     ? <Badge tone="live" title="Prices and holdings from your Alpaca paper account">Your paper account</Badge>
     : <Badge tone="sample" title="Synthetic sample prices and holdings — nothing here is your data">Sample data</Badge>;
 }
+
+/** Short description of a data source, for "Calculated … · <source>" lines. */
+export const sourceLabel = dataSource =>
+  dataSource === 'brokers' ? 'Your linked brokerages' : dataSource === 'alpaca' ? 'Alpaca paper data' : 'Sample prices and holdings';
 
 export function SavedLabel({ at }) {
   return <span className="tiny subtle" aria-live="polite">{at ? `Saved on this device · ${fmtAgo(at)}` : 'Not saved yet'}</span>;

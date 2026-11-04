@@ -127,6 +127,10 @@ export function useEngineResult(slug, key, path, request, { persist = true } = {
 /* ------------------------------------------------------------ quotes */
 
 const QUOTE_TTL_MS = 6 * 3600 * 1000;
+// A lookup that came back without a price (unknown ticker, no data) is
+// retried after this long, not immediately. Retrying at once looped forever,
+// because each answer updates the thesis and re-runs the effect.
+const QUOTE_RETRY_MS = 10 * 60 * 1000;
 
 /**
  * Keeps a reference price on every thesis (and fills in sample targets that
@@ -140,9 +144,12 @@ export function useThesisQuotes(slug) {
 
   useEffect(() => {
     if (product.slug === 'prediction-markets') return;
-    const due = ws.theses.filter(
-      t => t.ticker && !inflight.current.has(t.ticker) && (!t.refPrice || !t.refAt || Date.now() - new Date(t.refAt).getTime() > QUOTE_TTL_MS),
-    );
+    const due = ws.theses.filter(t => {
+      if (!t.ticker || inflight.current.has(t.ticker)) return false;
+      if (!t.refAt) return true; // never looked up
+      const age = Date.now() - new Date(t.refAt).getTime();
+      return age > (t.refPrice ? QUOTE_TTL_MS : QUOTE_RETRY_MS);
+    });
     // One request per distinct ticker.
     const tickers = [...new Set(due.map(t => t.ticker))];
     tickers.forEach(ticker => {

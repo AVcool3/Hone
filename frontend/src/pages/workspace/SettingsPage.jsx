@@ -1,10 +1,12 @@
 /*
  * Data & account.
  *
- *   Data source   Sample data (default) or your own Alpaca *paper* account.
- *                 Keys travel with each request and are never stored on the
- *                 server; on this device they're kept for the session only
- *                 unless you tick "remember".
+ *   Data source   Sample data (default), your linked brokerages (every
+ *                 account at Schwab, Fidelity, Robinhood… combined, through
+ *                 SnapTrade — see BrokeragesPanel.jsx), or your own Alpaca
+ *                 *paper* account. Alpaca keys travel with each request and
+ *                 are never stored on the server; on this device they're
+ *                 kept for the session only unless you tick "remember".
  *   Account       Optional Supabase sign-in to save portfolios (only shown
  *                 when public/config.js has Supabase configured).
  *   Reset         Start this product's workspace over.
@@ -15,12 +17,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useProduct } from '../../App.jsx';
-import { api, marketBody } from '../../lib/api.js';
+import { api, marketBody, serverConfig } from '../../lib/api.js';
 import { Auth } from '../../lib/auth.js';
 import { useStore, useWorkspace } from '../../lib/store.jsx';
 import { docPath } from '../../lib/products.js';
 import { fmtDate, fmtPct } from '../../lib/format.js';
 import { Badge, Button, ErrorNotice, Field, Notice, PageHeader, SectionTitle } from '../../components/ui.jsx';
+import BrokeragesPanel from './BrokeragesPanel.jsx';
 
 export default function SettingsPage() {
   const product = useProduct();
@@ -44,11 +47,17 @@ function DataSource({ product }) {
   const { ws, update } = useWorkspace(product.slug);
   const { alpaca, setAlpaca } = useStore();
   const [test, setTest] = useState({ busy: false, error: null, ok: null });
+  // Is brokerage linking switched on for this server (SNAPTRADE_* set)?
+  const [brokers, setBrokers] = useState({ enabled: false, requires_sign_in: false });
+  useEffect(() => { serverConfig().then(c => c.brokers && setBrokers(c.brokers)); }, []);
 
   const choose = src => {
     // New data source = new prices: clear reference prices and results so nothing mixes sources.
     update(cur => ({ ...cur, dataSource: src, results: {}, theses: cur.theses.map(t => ({ ...t, refPrice: null, refAt: null })) }));
   };
+  // Linking or unlinking a brokerage changes the holdings: recalculate everything.
+  const holdingsChanged = () => update(cur => ({ ...cur, results: {} }));
+  const showBrokers = brokers.enabled || ws.dataSource === 'brokers';
 
   const runTest = async () => {
     setTest({ busy: true, error: null, ok: null });
@@ -63,18 +72,37 @@ function DataSource({ product }) {
   return (
     <div className="card">
       <SectionTitle title="Data source" sub="Every tool in this workspace uses the same source, labelled at the top of the page." />
-      <div className="choice-pair">
-        <button type="button" className="choice" aria-pressed={ws.dataSource !== 'alpaca'} onClick={() => choose('sample')}>
+      <div className={showBrokers ? 'choice-trio' : 'choice-pair'}>
+        <button type="button" className="choice" aria-pressed={ws.dataSource === 'sample'} onClick={() => choose('sample')}>
           <span className="choice__tag">Sample data</span>
           <span className="choice__main" style={{ display: 'block', fontSize: 17 }}>Synthetic prices and a $25,000 sample portfolio</span>
           <span className="small muted">Nothing to set up. Good for exploring.</span>
         </button>
+        {showBrokers && (
+          <button type="button" className="choice" aria-pressed={ws.dataSource === 'brokers'} onClick={() => choose('brokers')}>
+            <span className="choice__tag">Your brokerages</span>
+            <span className="choice__main" style={{ display: 'block', fontSize: 17 }}>Every account you hold, combined</span>
+            <span className="small muted">Schwab, Fidelity, Robinhood and more. Read-only.</span>
+          </button>
+        )}
         <button type="button" className="choice" aria-pressed={ws.dataSource === 'alpaca'} onClick={() => choose('alpaca')}>
           <span className="choice__tag">Your paper account</span>
           <span className="choice__main" style={{ display: 'block', fontSize: 17 }}>{product.account}</span>
           <span className="small muted">Real prices and your paper holdings. Free; no real money.</span>
         </button>
       </div>
+
+      {!showBrokers && (
+        <p className="tiny subtle mt-3">
+          Linking real brokerages isn’t set up on this server — see <Link to={docPath(product.slug, 'setup', 'brokerages')}>Linking brokerages</Link>.
+        </p>
+      )}
+
+      {ws.dataSource === 'brokers' && (
+        <div className="mt-5">
+          <BrokeragesPanel product={product} config={brokers} onLinksChanged={holdingsChanged} />
+        </div>
+      )}
 
       {ws.dataSource === 'alpaca' && (
         <div className="stack mt-5">

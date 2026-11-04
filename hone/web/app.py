@@ -7,6 +7,8 @@ POST /api/questionnaire  — choices -> gamma, noise, 50-tier placement
 POST /api/portfolio      — current Alpaca paper positions (or demo data)
 POST /api/optimize       — views -> Black-Litterman + MVO + hedge plan
 POST /api/hedge          — hedge plan only
+POST /api/broker/...     — link brokerages through SnapTrade (connect,
+                           accounts, disconnect, unlink)
 GET  /, /:product/...     — the React single-page app (built from frontend/)
 
 Alpaca credentials resolve per request: explicit fields in the request
@@ -23,6 +25,18 @@ HONE_PUBLIC
     fall back to its own ALPACA_* environment variables — each user must
     supply their own keys in the page.  Set this on any deployment that
     strangers can reach so your keys can never be used by visitors.
+SNAPTRADE_CLIENT_ID, SNAPTRADE_CONSUMER_KEY
+    Turn on "link your brokerages" (Schwab, Fidelity, Robinhood, IBKR, ...)
+    through SnapTrade.  Never sent to the browser.  With HONE_PUBLIC set,
+    linking requires Supabase sign-in, so strangers can't create paid
+    SnapTrade users on your account.
+ALPACA_DATA_API_KEY, ALPACA_DATA_SECRET_KEY
+    Alpaca keys used *only* for price history (never to read an account),
+    so they are safe on a public server.  Linked-brokerage portfolios need a
+    price source; without these, visitors must enter their own Alpaca keys.
+SUPABASE_URL, SUPABASE_ANON_KEY
+    Where to verify sign-in tokens.  Optional: by default they are read from
+    static/config.js, the same values the browser uses.
 """
 
 from __future__ import annotations
@@ -41,6 +55,7 @@ from fastapi.responses import FileResponse
 
 from ..hedging.hedge import portfolio_beta, portfolio_volatility, revealed_gamma
 from ..market_data.alpaca_client import AlpacaClient, AlpacaError
+from ..market_data.brokers import snaptrade as snap
 from ..market_data.covariance import portfolio_covariance
 from ..optimization.mvo import trade_reasons
 from ..optimization.views import View
@@ -240,6 +255,266 @@ def _client(creds: s.AlpacaCredentials | None) -> AlpacaClient:
         raise HTTPException(status_code=401, detail=str(exc))
 
 
+# ------------------------------------------------------------ sign-in
+#: Verified Supabase tokens -> (user id, expiry). Saves a round trip to
+#: Supabase on every brokerage call. Tokens themselves expire within the hour.
+_SESSION_CACHE: dict[str, tuple[str, float]] = {}
+_SESSION_TTL = 300.0
+
+#: The header the browser sends its Supabase access token in. Not
+#: `Authorization`: that one carries the HONE_ACCESS_PASSWORD Basic-auth
+#: login when the site is password-gated, and overriding it would lock the
+#: user out.
+SESSION_HEADER = "x-hone-session"
+
+
+def _supabase_settings() -> tuple[str, str]:
+    """(project URL, anon key) from env, else from static/config.js."""
+    url = os.environ.get("SUPABASE_URL", "")
+    key = os.environ.get("SUPABASE_ANON_KEY", "")
+    if url and key:
+        return url.rstrip("/"), key
+    try:
+        import re
+
+        text = (STATIC_DIR / "config.js").read_text()
+        url_m = re.search(r'supabaseUrl\s*:\s*["\']([^"\']*)', text)
+        key_m = re.search(r'supabaseAnonKey\s*:\s*["\']([^"\']*)', text)
+        if url_m and key_m:
+            return url_m.group(1).rstrip("/"), key_m.group(1)
+    except OSError:
+        pass
+    return "", ""
+
+
+def _signed_in_user(request: Request) -> str | None:
+    """The Supabase user id behind this request's session token, or None.
+
+    Raises 401 when a token is present but Supabase rejects it (expired or
+    forged), so the user is told to sign in again rather than silently
+    treated as anonymous.
+    """
+    token = request.headers.get(SESSION_HEADER, "").strip()
+    if not token:
+        return None
+    import hashlib
+    import time
+
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    hit = _SESSION_CACHE.get(digest)
+    if hit and hit[1] > time.monotonic():
+        return hit[0]
+    url, key = _supabase_settings()
+    if not url or not key:
+        return None
+    import requests
+
+    try:
+        resp = requests.get(
+            f"{url}/auth/v1/user",
+            headers={"apikey": key, "Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except requests.RequestException:
+        raise HTTPException(status_code=503, detail="Couldn't check your sign-in. Try again.")
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=401, detail="Your sign-in has expired. Sign in again under Data & account."
+        )
+    user_id = str(resp.json().get("id") or "")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign-in not recognised. Sign in again.")
+    if len(_SESSION_CACHE) > 5000:
+        _SESSION_CACHE.clear()
+    _SESSION_CACHE[digest] = (user_id, time.monotonic() + _SESSION_TTL)
+    return user_id
+
+
+def _snaptrade_user_id(request: Request, local_id: str | None) -> str:
+    """Which SnapTrade user this person is.
+
+    Signed in: derived from their Supabase id, so each account gets exactly
+    one SnapTrade user (and so one bill) no matter how often they click
+    Connect. Not signed in: only allowed on private servers, keyed by a
+    random id the browser generated.
+    """
+    import re
+
+    uid = _signed_in_user(request)
+    if uid:
+        return f"hone-{uid}"
+    if _public_mode():
+        raise HTTPException(
+            status_code=401,
+            detail="Sign in to link your brokerages (Data & account → Account).",
+        )
+    if not local_id or not re.fullmatch(r"[A-Za-z0-9-]{16,64}", local_id):
+        raise HTTPException(status_code=422, detail="local_id: a random id is required.")
+    return f"hone-local-{local_id}"
+
+
+def _check_link_owner(request: Request, link: s.BrokerLink) -> None:
+    """On public servers, a link may only be used by the account it belongs to."""
+    if not _public_mode():
+        return
+    uid = _signed_in_user(request)
+    if not uid or link.user_id != f"hone-{uid}":
+        raise HTTPException(
+            status_code=403,
+            detail="This brokerage link belongs to a different sign-in. Sign in "
+            "with that account, or connect your brokerages again.",
+        )
+
+
+def _same_site_redirect(url: str | None, request: Request) -> str | None:
+    """Only let SnapTrade send users back to *this* site (no open redirect)."""
+    if not url:
+        return None
+    from urllib.parse import urlparse
+
+    target = urlparse(url)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    if target.scheme in ("http", "https") and target.netloc == host:
+        return url
+    return None
+
+
+# ------------------------------------------------------------ brokerages
+def _broker(creds: s.AlpacaCredentials | None) -> s.BrokerLink | None:
+    """The request's linked-brokerage identity, if it's using one."""
+    if creds and creds.source == "brokers" and not creds.broker:
+        raise HTTPException(
+            status_code=400,
+            detail="No brokerages are linked on this device yet. Connect one "
+            "under Data & account, or switch to sample data.",
+        )
+    return creds.broker if creds and creds.broker else None
+
+
+def _snaptrade() -> snap.SnapTradeClient:
+    try:
+        return snap.SnapTradeClient()
+    except snap.SnapTradeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+def _snaptrade_http(exc: snap.SnapTradeError) -> HTTPException:
+    """Turn a SnapTrade failure into a message the user can act on."""
+    if exc.status in (401, 403):
+        return HTTPException(
+            status_code=401,
+            detail="Your brokerage link is no longer valid. Reconnect your "
+            "brokerages under Data & account.",
+        )
+    if exc.status == 429:
+        return HTTPException(
+            status_code=429,
+            detail="The brokerage connection is busy (rate limit). Wait a "
+            "minute and try again.",
+        )
+    if exc.status == 503 and "configured" in str(exc):
+        return HTTPException(status_code=503, detail=str(exc))
+    return HTTPException(status_code=502, detail=f"Brokerage data unavailable: {exc}")
+
+
+def _broker_holdings(creds: s.AlpacaCredentials | None) -> snap.BrokerHoldings:
+    link = _broker(creds)
+    assert link is not None
+    try:
+        return snap.fetch_holdings(
+            _snaptrade(),
+            link.user_id,
+            link.user_secret,
+            crypto=is_crypto(),
+            account_ids=link.account_ids,
+        )
+    except snap.SnapTradeError as exc:
+        raise _snaptrade_http(exc)
+
+
+def _data_client(creds: s.AlpacaCredentials | None) -> AlpacaClient:
+    """An Alpaca client for *price history only* (linked-brokerage mode).
+
+    Holdings come from SnapTrade, so this client is never asked what anyone
+    owns. In order of preference: the user's own Alpaca keys, the server's
+    market-data-only keys (safe on a public server), then — on private
+    servers only — the server's regular ALPACA_* keys.
+    """
+    if creds and creds.api_key and creds.secret_key:
+        return AlpacaClient(api_key=creds.api_key, secret_key=creds.secret_key)
+    key = os.environ.get("ALPACA_DATA_API_KEY")
+    secret = os.environ.get("ALPACA_DATA_SECRET_KEY")
+    if key and secret:
+        return AlpacaClient(api_key=key, secret_key=secret)
+    if not _public_mode():
+        try:
+            return AlpacaClient()
+        except AlpacaError:
+            pass
+    raise HTTPException(
+        status_code=503,
+        detail="This server has no price-history source for linked "
+        "brokerages. Enter your own Alpaca keys (used only for prices), or "
+        "set ALPACA_DATA_API_KEY / ALPACA_DATA_SECRET_KEY on the server.",
+    )
+
+
+def _load_broker_market(
+    creds: s.AlpacaCredentials | None,
+    extra_symbols: list[str],
+    market_proxy: str,
+    lookback_days: int,
+) -> tuple[pd.DataFrame, pd.Series, snap.BrokerHoldings, list[snap.Holding]]:
+    """Holdings from every linked brokerage, priced from Alpaca market data.
+
+    Returns (prices, weights, holdings, unpriced). ``unpriced`` are holdings
+    the price source has no history for (delisted, OTC, too new...); they're
+    left out of the weights and reported, not silently dropped.
+    """
+    held = _broker_holdings(creds)
+    if not held.holdings:
+        what = "crypto" if is_crypto() else "stock or ETF"
+        raise HTTPException(
+            status_code=400,
+            detail=f"No {what} positions Hone can model in your linked "
+            "brokerage accounts. Link another account, or use sample data.",
+        )
+    client = _data_client(creds)
+    try:
+        if is_crypto():
+            from ..crypto.universe import normalize_symbol
+
+            symbols = sorted(
+                {h.symbol for h in held.holdings}
+                | {normalize_symbol(t) for t in extra_symbols}
+                | {normalize_symbol(market_proxy)}
+            )
+            start = date.today() - timedelta(days=int(lookback_days * 1.2))
+            prices = client.get_crypto_bars(symbols, start=start)
+        else:
+            symbols = sorted(
+                {h.symbol for h in held.holdings}
+                | {t.upper() for t in extra_symbols}
+                | {market_proxy}
+            )
+            start = date.today() - timedelta(days=int(lookback_days * 1.6))
+            prices = client.get_bars(symbols, start=start)
+    except AlpacaError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    prices = prices.dropna(axis=1, how="all").tail(lookback_days)
+    priced = [h for h in held.holdings if h.symbol in prices.columns]
+    unpriced = [h for h in held.holdings if h.symbol not in prices.columns]
+    if not priced:
+        raise HTTPException(
+            status_code=502,
+            detail="No price history was found for any of your linked "
+            "holdings, so there is nothing to model.",
+        )
+    weights = pd.Series({h.symbol: h.market_value for h in priced}, dtype=float)
+    weights = weights / (weights.abs().sum() or 1.0)
+    return prices, weights, held, unpriced
+
+
 def _load_market(
     demo: bool,
     creds: s.AlpacaCredentials | None,
@@ -254,6 +529,11 @@ def _load_market(
 
             return synthetic_crypto_universe()
         prices, weights = synthetic_universe()
+        return prices, weights
+    if _broker(creds):
+        prices, weights, _, _ = _load_broker_market(
+            creds, extra_symbols, hedge_instrument, lookback_days
+        )
         return prices, weights
     if is_crypto():
         return _load_crypto_market(creds, extra_symbols, hedge_instrument, lookback_days)
@@ -429,6 +709,12 @@ def create_app() -> FastAPI:
         return {
             "asset_class": asset_class(),
             "auth_enabled": True,
+            # Linking real brokerages (SnapTrade). `requires_sign_in` is true
+            # on public servers: each link is a paid SnapTrade user.
+            "brokers": {
+                "enabled": snap.configured(),
+                "requires_sign_in": _public_mode(),
+            },
             "market_proxy": _market_proxy(),
             "periods_per_year": _periods_per_year(),
             "copy": {
@@ -572,7 +858,10 @@ def create_app() -> FastAPI:
                 positions=positions,
                 portfolio_value=DEMO_PORTFOLIO_VALUE,
                 analysis=analysis,
+                source="sample",
             )
+        if _broker(req.credentials):
+            return _broker_portfolio(req)
         client = _client(req.credentials)
         try:
             raw = client.get_crypto_positions() if is_crypto() else client.get_positions()
@@ -608,7 +897,184 @@ def create_app() -> FastAPI:
             positions=positions,
             portfolio_value=equity,
             analysis=analysis,
+            source="alpaca",
         )
+
+    def _broker_portfolio(req: s.PortfolioRequest) -> s.PortfolioResponse:
+        """Linked brokerages: every account combined into one portfolio."""
+        prices, weights, held, unpriced = _load_broker_market(
+            req.credentials, [], _market_proxy(), req.lookback_days
+        )
+        modelled = [h for h in held.holdings if h.symbol in weights.index]
+        positions = [
+            s.PositionOut(
+                symbol=h.symbol,
+                weight=float(weights[h.symbol]),
+                market_value=h.market_value,
+                qty=h.qty,
+            )
+            for h in modelled
+        ]
+        skipped = [
+            s.SkippedHoldingOut(
+                symbol=k.symbol, reason=k.reason, market_value=k.market_value, account=k.account
+            )
+            for k in held.skipped
+        ] + [
+            s.SkippedHoldingOut(
+                symbol=h.symbol,
+                reason="No price history from the market-data source",
+                market_value=h.market_value,
+                account=", ".join(h.accounts) or None,
+            )
+            for h in unpriced
+        ]
+        analysis = None
+        if req.analyze:
+            try:
+                analysis = _analysis(prices, weights, req.stated_gamma)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+        return s.PortfolioResponse(
+            demo=False,
+            positions=positions,
+            # Value of what's modelled. Cash and skipped positions are listed
+            # separately, so hedges are sized to the part Hone can see.
+            portfolio_value=sum(abs(h.market_value) for h in modelled) or None,
+            analysis=analysis,
+            source="brokerages",
+            accounts=[snap.account_label(a) for a in held.accounts],
+            skipped=skipped,
+        )
+
+    # ---------------------------------------------------------- brokerages
+    # Linking flow (see hone/market_data/brokers/snaptrade.py):
+    #   1. POST /api/broker/connect -> a SnapTrade Connection Portal URL (and,
+    #      the first time, a new link the browser must keep).
+    #   2. The browser goes there; the user picks a broker and signs in on
+    #      SnapTrade's page; SnapTrade redirects back to redirect_url.
+    #   3. POST /api/broker/accounts lists what got linked. From then on every
+    #      market request carries credentials.broker, and holdings come from
+    #      all linked accounts combined.
+    @app.post("/api/broker/connect", response_model=s.BrokerConnectResponse)
+    def broker_connect(req: s.BrokerConnectRequest, request: Request) -> s.BrokerConnectResponse:
+        client = _snaptrade()
+        link = req.link
+        if link is not None:
+            _check_link_owner(request, link)
+        try:
+            if link is None or req.reset:
+                user_id = _snaptrade_user_id(request, req.local_id)
+                if req.reset:
+                    # The secret was lost: start this person's SnapTrade user
+                    # over. Their old connections go with it.
+                    try:
+                        client.delete_user(user_id)
+                    except snap.SnapTradeError:
+                        pass
+                try:
+                    secret = client.register_user(user_id)
+                except snap.SnapTradeError as exc:
+                    if exc.status in (400, 409):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Your brokerages are already linked from another "
+                            "device, but this one doesn't have the key to read "
+                            "them. Sign in with the same account, or reset the link "
+                            "(you'll reconnect your brokerages).",
+                        )
+                    raise
+                link = s.BrokerLink(user_id=user_id, user_secret=secret)
+            url = client.login_link(
+                link.user_id,
+                link.user_secret,
+                redirect_url=_same_site_redirect(req.redirect_url, request),
+                reconnect=req.reconnect,
+            )
+        except snap.SnapTradeError as exc:
+            raise _snaptrade_http(exc)
+        snap.forget(link.user_id)
+        return s.BrokerConnectResponse(
+            redirect_url=url,
+            link=s.BrokerLink(user_id=link.user_id, user_secret=link.user_secret),
+        )
+
+    @app.post("/api/broker/accounts", response_model=s.BrokerAccountsResponse)
+    def broker_accounts(req: s.BrokerLinkRequest, request: Request) -> s.BrokerAccountsResponse:
+        """The linked brokerages and their accounts (always fresh)."""
+        _check_link_owner(request, req.link)
+        client = _snaptrade()
+        link = req.link
+        try:
+            conns = client.list_connections(link.user_id, link.user_secret)
+            accounts = client.list_accounts(link.user_id, link.user_secret)
+        except snap.SnapTradeError as exc:
+            raise _snaptrade_http(exc)
+        # A user looking at this list may have just linked something: make
+        # the next calculation fetch holdings again instead of using cache.
+        snap.forget(link.user_id)
+        out_conns = []
+        for c in conns:
+            b = c.get("brokerage") or {}
+            out_conns.append(
+                s.BrokerConnectionOut(
+                    id=str(c.get("id")),
+                    brokerage=b.get("display_name") or b.get("name") or c.get("name") or "Brokerage",
+                    logo_url=b.get("aws_s3_square_logo_url") or b.get("aws_s3_logo_url"),
+                    disabled=bool(c.get("disabled")),
+                    created=str(c.get("created_date") or "") or None,
+                )
+            )
+        out_accts = []
+        for a in accounts:
+            total = (a.get("balance") or {}).get("total") or {}
+            amount = total.get("amount") if isinstance(total, dict) else None
+            try:
+                amount = float(amount) if amount is not None else None
+            except (TypeError, ValueError):
+                amount = None
+            category = a.get("account_category")
+            out_accts.append(
+                s.BrokerAccountOut(
+                    id=str(a.get("id")),
+                    connection_id=a.get("brokerage_authorization"),
+                    label=snap.account_label(a),
+                    institution=a.get("institution_name") or "Brokerage",
+                    value=amount,
+                    currency=total.get("currency") if isinstance(total, dict) else None,
+                    is_paper=bool(a.get("is_paper")),
+                    investment=not category or category == "INVESTMENT",
+                )
+            )
+        return s.BrokerAccountsResponse(connections=out_conns, accounts=out_accts)
+
+    @app.post("/api/broker/disconnect")
+    def broker_disconnect(req: s.BrokerDisconnectRequest, request: Request) -> dict:
+        """Unlink one brokerage. Its accounts drop out of the portfolio."""
+        _check_link_owner(request, req.link)
+        try:
+            _snaptrade().remove_connection(
+                req.link.user_id, req.link.user_secret, req.connection_id
+            )
+        except snap.SnapTradeError as exc:
+            raise _snaptrade_http(exc)
+        snap.forget(req.link.user_id)
+        return {"ok": True}
+
+    @app.post("/api/broker/unlink")
+    def broker_unlink(req: s.BrokerLinkRequest, request: Request) -> dict:
+        """Delete this person's SnapTrade user and every connection it has."""
+        _check_link_owner(request, req.link)
+        client = _snaptrade()
+        try:
+            # deleteUser needs only the user id, so prove the caller holds the
+            # secret first — otherwise anyone who guessed an id could unlink it.
+            client.list_connections(req.link.user_id, req.link.user_secret)
+            client.delete_user(req.link.user_id)
+        except snap.SnapTradeError as exc:
+            raise _snaptrade_http(exc)
+        snap.forget(req.link.user_id)
+        return {"ok": True}
 
     # ------------------------------------------------------------ optimize
     @app.post("/api/optimize", response_model=s.OptimizeResponse)
@@ -687,9 +1153,22 @@ def create_app() -> FastAPI:
                 value = DEMO_PORTFOLIO_VALUE
         else:
             try:
-                client = _client(req.credentials)
-                if value is None:
-                    value = float(client.get_account().get("equity") or 0) or None
+                if _broker(req.credentials):
+                    # Linked brokerages: value is what Hone models (see
+                    # _broker_portfolio); prices/options from market data.
+                    client = _data_client(req.credentials)
+                    if value is None:
+                        # Only holdings that made it into the model (have
+                        # prices), matching /api/portfolio's figure.
+                        value = sum(
+                            abs(h.market_value)
+                            for h in _broker_holdings(req.credentials).holdings
+                            if h.symbol in weights.index
+                        ) or None
+                else:
+                    client = _client(req.credentials)
+                    if value is None:
+                        value = float(client.get_account().get("equity") or 0) or None
                 # Live option chain for accurate hedge pricing (best-effort:
                 # falls back to Black-Scholes if unavailable/not entitled).
                 # Crypto has no listed options through this integration.
@@ -1402,11 +1881,25 @@ def create_app() -> FastAPI:
         universe: list[str] = []
         prices_map: dict[str, float] = {}
         if req.with_prices:
+            # A bare ticker ("NVDA", "SOL/USD") is a price lookup for a thesis.
+            # Fetch it even if it isn't held, so a view on a stock you don't
+            # own yet gets a reference price and counts as tradeable.
+            # (Synthetic sample data has a fixed universe, so not in demo.)
+            import re
+
+            bare = req.text.strip().upper()
+            extra = (
+                [bare]
+                if not req.demo and re.fullmatch(r"[A-Z][A-Z0-9.]{0,9}(/[A-Z]{3,4})?", bare)
+                else []
+            )
             try:
                 prices, _ = _load_market(
-                    req.demo, req.credentials, [], _market_proxy(),
+                    req.demo, req.credentials, extra, _market_proxy(),
                     max(req.lookback_days, 10),
                 )
+                # Symbols the data source returned nothing for aren't tradeable.
+                prices = prices.dropna(axis=1, how="all")
                 universe = [str(c) for c in prices.columns]
                 last = prices.ffill().iloc[-1]
                 prices_map = {

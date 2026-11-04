@@ -54,6 +54,34 @@ Row-Level Security is the whole security model here: even though the anon
 key is public, these policies mean the database itself refuses to return
 or modify a row unless the request's authenticated user owns it.
 
+## 2b. (For linked brokerages) the `broker_links` table
+
+Only needed if you turned on [brokerage linking](BROKERAGES.md). Each user's
+SnapTrade link is kept here so it follows them to other devices. Run:
+
+```sql
+create table public.broker_links (
+  user_id               uuid primary key references auth.users (id) on delete cascade,
+  snaptrade_user_id     text not null,
+  snaptrade_user_secret text not null,
+  updated_at            timestamptz not null default now()
+);
+
+alter table public.broker_links enable row level security;
+
+create policy "own link: select" on public.broker_links
+  for select using (auth.uid() = user_id);
+create policy "own link: insert" on public.broker_links
+  for insert with check (auth.uid() = user_id);
+create policy "own link: update" on public.broker_links
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "own link: delete" on public.broker_links
+  for delete using (auth.uid() = user_id);
+```
+
+The secret here can't be used on its own: every SnapTrade request also has to
+be signed with your server's consumer key, which never leaves the server.
+
 ## 3. Configure email auth
 
 In **Authentication → Providers → Email**, make sure Email is enabled.
@@ -118,7 +146,9 @@ then set `SUPABASE_URL` / `SUPABASE_ANON_KEY` in your host's environment
 - The anon key is *designed* to be public; your data is protected by the
   RLS policies above, not by hiding the key. Do not paste the
   `service_role` key into `config.js`.
-- Hone stores no brokerage credentials in Supabase. Alpaca keys live only
-  in the browser session and are sent only to Alpaca via your own requests.
+- Hone stores no brokerage *passwords* anywhere: brokerages are linked on
+  SnapTrade's own page. The `broker_links` table holds the user's SnapTrade
+  link, readable only by that user, and useless without the server's
+  SnapTrade consumer key. Alpaca keys live only in the browser session.
 - If you enabled `HONE_ACCESS_PASSWORD` (the site-wide gate), that and
   Supabase auth are independent layers — you can use either or both.

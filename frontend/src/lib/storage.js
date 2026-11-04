@@ -8,6 +8,8 @@
  *   hone:v2:ws:<product>       one product's workspace (theses, settings, results)
  *   hone:v2:journal:<product>  decision journal entries
  *   hone:v2:alpaca             Alpaca paper keys (only if "remember" is ticked)
+ *   hone:v2:broker             SnapTrade link {userId, secret} for linked brokerages
+ *   hone:v2:broker-local-id    random id for linking without sign-in (private servers)
  */
 
 export const KEYS = {
@@ -15,6 +17,10 @@ export const KEYS = {
   ws: slug => `hone:v2:ws:${slug}`,
   journal: slug => `hone:v2:journal:${slug}`,
   alpaca: 'hone:v2:alpaca',
+  // Kept in localStorage (not session): losing it means relinking every
+  // brokerage. It is useless without the server's own SnapTrade key.
+  broker: 'hone:v2:broker',
+  brokerLocalId: 'hone:v2:broker-local-id',
   session: 'hone-session', // Supabase session (unchanged so existing sign-ins survive)
 };
 

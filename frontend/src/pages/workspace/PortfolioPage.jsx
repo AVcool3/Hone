@@ -17,7 +17,7 @@ import { Link } from 'react-router-dom';
 import { useProduct } from '../../App.jsx';
 import SlideCommit from '../../reactbits/SlideCommit/SlideCommit.jsx';
 import AllocationBars from '../../components/AllocationBars.jsx';
-import { Badge, Button, ErrorNotice, Expander, Field, Notice, NumberSlider, PageHeader, SectionTitle, SkeletonRows, StaleBanner, Stat } from '../../components/ui.jsx';
+import { Badge, Button, ErrorNotice, Expander, Field, Notice, NumberSlider, PageHeader, SectionTitle, SkeletonRows, StaleBanner, Stat, sourceLabel } from '../../components/ui.jsx';
 import { api } from '../../lib/api.js';
 import { Auth } from '../../lib/auth.js';
 import { buildOptimizeBody, useOptimize } from '../../lib/hooks.js';
@@ -66,7 +66,7 @@ export default function PortfolioPage() {
         title="Portfolio"
         lede="Your current holdings next to what the model proposes, with the reason for every change. A proposal depends on this model and these inputs — it is not a recommendation."
         actions={<Button icon="RefreshIcon" onClick={opt.run} disabled={opt.busy}>{opt.busy ? 'Calculating…' : 'Recalculate allocation'}</Button>}
-        meta={<span className="tiny subtle">{opt.at ? `Calculated ${fmtAgo(opt.at)}` : 'Not calculated yet'} · {ws.dataSource === 'alpaca' ? 'Alpaca paper data' : 'Sample prices and holdings'}</span>}
+        meta={<span className="tiny subtle">{opt.at ? `Calculated ${fmtAgo(opt.at)}` : 'Not calculated yet'} · {sourceLabel(ws.dataSource)}</span>}
       />
 
       {/* 1. Preferences */}

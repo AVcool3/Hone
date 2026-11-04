@@ -4,6 +4,7 @@
  * Every call carries ?asset_class=… so the server uses the right market data
  * regardless of which URL the page is on. Errors throw an ApiError whose
  * `kind` lets the UI tell apart:
+ *   'brokerage'   — a linked-brokerage problem (link expired, needs sign-in…)
  *   'credentials' — Alpaca rejected or is missing keys
  *   'data'        — the market data needed isn't available (502/422)
  *   'network'     — the request never reached the server
@@ -20,6 +21,9 @@ export class ApiError extends Error {
 
 function classify(status, message) {
   const m = (message || '').toLowerCase();
+  // Checked first: these messages also mention keys/sign-in, but the fix is
+  // on the brokerage side, not the Alpaca keys.
+  if (m.includes('brokerage') || m.includes('sign in') || m.includes('snaptrade')) return 'brokerage';
   if (m.includes('key') || m.includes('credential') || m.includes('unauthorized') || m.includes('forbidden') || status === 401 || status === 403) {
     return 'credentials';
   }
@@ -40,13 +44,13 @@ function detailText(detail, fallback) {
   return fallback;
 }
 
-export async function api(assetClass, path, body, { signal } = {}) {
+export async function api(assetClass, path, body, { signal, headers } = {}) {
   const url = `${path}${path.includes('?') ? '&' : '?'}asset_class=${encodeURIComponent(assetClass)}`;
   let res;
   try {
     res = await fetch(url, {
       method: body === undefined ? 'GET' : 'POST',
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal,
     });
@@ -63,17 +67,35 @@ export async function api(assetClass, path, body, { signal } = {}) {
 }
 
 /**
- * The market part of a request body: sample data, or the user's own Alpaca
- * paper account. Keys travel with the single request and are never stored
- * server-side.
+ * The market part of a request body. Three data sources:
+ *   'sample'  — synthetic prices and holdings ({ demo: true })
+ *   'alpaca'  — the user's Alpaca paper account (their keys)
+ *   'brokers' — every brokerage linked through SnapTrade, combined. Any
+ *               Alpaca keys the user entered are sent too, but only to fetch
+ *               price history.
+ * Everything travels with the single request and is never stored server-side.
  */
-export function marketBody(dataSource, alpaca) {
-  if (dataSource !== 'alpaca') return { demo: true };
+export function marketBody(dataSource, alpaca, broker) {
+  if (dataSource !== 'alpaca' && dataSource !== 'brokers') return { demo: true };
   const body = { demo: false };
+  const creds = {};
   if (alpaca?.apiKey || alpaca?.secretKey) {
-    body.credentials = { api_key: alpaca.apiKey || null, secret_key: alpaca.secretKey || null };
+    creds.api_key = alpaca.apiKey || null;
+    creds.secret_key = alpaca.secretKey || null;
   }
+  if (dataSource === 'brokers') {
+    creds.source = 'brokers'; // so the server can say "nothing linked yet"
+    if (broker?.userId) creds.broker = { user_id: broker.userId, user_secret: broker.secret };
+  }
+  if (Object.keys(creds).length) body.credentials = creds;
   return body;
+}
+
+/** The server's switches (is brokerage linking on? does it need sign-in?). */
+let configPromise = null;
+export function serverConfig(assetClass = 'stocks') {
+  configPromise ??= api(assetClass, '/api/config').catch(() => ({}));
+  return configPromise;
 }
 
 /**

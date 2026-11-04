@@ -39,7 +39,7 @@ export default function WorkspaceLayout() {
   const optimizeStale = ws.results.optimize && ws.results.optimize.sig !== portfolioSignature(risk.gamma, ws);
   const flags = { risk: risk.isSample, portfolio: optimizeStale };
   const isPrediction = product.slug === 'prediction-markets';
-  const hasYourData = !risk.isSample || ws.dataSource === 'alpaca' || ws.theses.some(t => !t.sample);
+  const hasYourData = !risk.isSample || ws.dataSource !== 'sample' || ws.theses.some(t => !t.sample);
 
   const nav = className => (
     <nav className={className} aria-label="Workspace tools">

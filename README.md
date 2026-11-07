@@ -248,6 +248,28 @@ described above. To turn it on, follow [docs/SUPABASE.md](docs/SUPABASE.md)
 (create a project, run the provided SQL with Row-Level Security, and fill
 in `hone/web/static/config.js`).
 
+## Checked against independent libraries
+
+The standard math in Hone runs on widely used open-source libraries, and
+Hone's own implementations are kept as fallbacks and checked against them
+(`tests/test_reference_libraries.py`):
+
+| Piece | Engine | Hone's own version |
+|---|---|---|
+| Portfolio optimization (γ-aware mean-variance) | [PyPortfolioOpt](https://github.com/PyPortfolio/PyPortfolioOpt) with the Clarabel interior-point solver | SciPy SLSQP: same utility to within 1e-7 on 100 random problems |
+| Black-Litterman posterior | PyPortfolioOpt, with Hone's confidence → Ω mapping | Same formula: agrees to ~1e-12, and both match a 50-digit computation |
+| Ledoit-Wolf covariance | scikit-learn | Agrees to ~1e-16 |
+| Minimum-CVaR | Hone's own LP (HiGHS) | Checked against PyPortfolioOpt's `EfficientCVaR` |
+
+The cross-check found one real bug: the old Black-Litterman code inverted
+τΣ and lost precision when two holdings move almost identically (SPY and
+VOO, GOOG and GOOGL), shifting expected returns by ~0.4 percentage points.
+Both engines now use the form that only inverts the small views matrix.
+
+What stays Hone's own: the risk questionnaire, the confidence calibration,
+the view conventions, the hedging engine, entropy pooling, the backtests,
+and income hedging. Those are what Hone is for.
+
 ## Measuring risk aversion in eight questions
 
 The 30-question Holt-Laury menu is still there, but the default is now

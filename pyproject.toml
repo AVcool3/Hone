@@ -17,6 +17,11 @@ dependencies = [
     # builders (e.g. Vercel) install from pyproject dependencies and
     # skip extras, and the web app must boot there.
     "fastapi>=0.110",
+    # The optimization engine: PyPortfolioOpt (MIT) solves the portfolio
+    # problem with a convex solver and computes the Black-Litterman
+    # posterior; it brings scikit-learn, whose Ledoit-Wolf estimator Hone
+    # uses for covariance. Hone's own implementations remain as fallbacks.
+    "pyportfolioopt>=1.5",
 ]
 
 [project.optional-dependencies]

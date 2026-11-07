@@ -76,11 +76,30 @@ def shrinkage_covariance(
     S* = (1 - a) S + a * m I, with the optimal intensity ``a`` estimated
     from the data ("A Well-Conditioned Estimator for Large-Dimensional
     Covariance Matrices").
+
+    Computed by scikit-learn's ``ledoit_wolf`` (the standard, heavily used
+    implementation — PyPortfolioOpt uses it too). Hone's own version,
+    :func:`_ledoit_wolf_hone`, is kept as the fallback; the two agree to
+    ~1e-16 (tests/test_reference_libraries.py).
     """
     x = returns.to_numpy(dtype=float)
-    t, n = x.shape
-    if t < 2:
+    if x.shape[0] < 2:
         raise ValueError("need at least two return observations")
+    try:
+        # Imported here so the web server starts without loading sklearn.
+        from sklearn.covariance import ledoit_wolf
+
+        shrunk, _intensity = ledoit_wolf(x, assume_centered=False)
+    except ImportError:
+        shrunk = _ledoit_wolf_hone(x)
+    if annualize:
+        shrunk = shrunk * annualize
+    return pd.DataFrame(shrunk, index=returns.columns, columns=returns.columns)
+
+
+def _ledoit_wolf_hone(x: np.ndarray) -> np.ndarray:
+    """Hone's own Ledoit-Wolf, per the paper (fallback and test reference)."""
+    t, n = x.shape
     x = x - x.mean(axis=0, keepdims=True)
     s = (x.T @ x) / t
 
@@ -93,10 +112,7 @@ def shrinkage_covariance(
     b2 = min(b2_sum / (t * t), d2)
     intensity = 0.0 if d2 == 0 else b2 / d2
 
-    shrunk = (1.0 - intensity) * s + intensity * m * np.eye(n)
-    if annualize:
-        shrunk = shrunk * annualize
-    return pd.DataFrame(shrunk, index=returns.columns, columns=returns.columns)
+    return (1.0 - intensity) * s + intensity * m * np.eye(n)
 
 
 @dataclass

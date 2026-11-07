@@ -13,13 +13,26 @@ Pipeline:
 
    c -> 1 gives omega -> 0 (view taken as certain); c -> 0 gives
    omega -> inf (view ignored).
-3. Posterior mean returns (master formula):
+3. Posterior mean returns and covariance, in the form that only inverts
+   the small k x k matrix (k = number of views):
 
-       mu_BL = [ (tau Sigma)^-1 + P' Omega^-1 P ]^-1
-               [ (tau Sigma)^-1 Pi + P' Omega^-1 Q ]
+       mu_BL = Pi + tau Sigma P' (P tau Sigma P' + Omega)^-1 (Q - P Pi)
+       M     = tau Sigma - tau Sigma P' (P tau Sigma P' + Omega)^-1 P tau Sigma
 
-   and posterior covariance Sigma + M where
-   M = [ (tau Sigma)^-1 + P' Omega^-1 P ]^-1.
+   and posterior covariance Sigma + M.  This is algebraically identical
+   to the textbook "master formula", which inverts (tau Sigma) and Omega,
+   but the textbook form loses precision when Sigma is nearly singular —
+   e.g. holding SPY and VOO, or GOOG and GOOGL, which move almost
+   identically.  On such a portfolio the old implementation was off by
+   ~0.4 percentage points of expected return; this form is exact.
+
+Engine
+------
+The posterior is computed by PyPortfolioOpt (``pypfopt.black_litterman``,
+MIT-licensed, widely used) when it is installed, with Hone's own Omega
+passed in so Hone's confidence handling is unchanged.  Hone's own
+implementation of the same formula is kept as a fallback, and
+tests/test_reference_libraries.py checks the two agree.
 
 The posterior mean and covariance then feed the gamma-aware MVO to
 produce the reweighted portfolio.
@@ -109,6 +122,8 @@ class BlackLittermanResult:
     views: list[View]
     tau: float
     delta: float
+    #: Which code computed the posterior: "pypfopt" or "hone" (the fallback).
+    engine: str = "hone"
 
     def summary(self) -> str:
         lines = [
@@ -137,6 +152,7 @@ def black_litterman_posterior(
     views: list[View],
     delta: float,
     tau: float = DEFAULT_TAU,
+    engine: str = "auto",
 ) -> BlackLittermanResult:
     """Blend user views into equilibrium returns.
 
@@ -157,21 +173,37 @@ def black_litterman_posterior(
         scale.
     tau
         Scalar uncertainty of the prior (typically 0.01-0.1).
+    engine
+        "auto" (default): PyPortfolioOpt if installed, else Hone's own code.
+        "pypfopt" / "hone": force one (the tests use this to compare them).
     """
     if delta <= 0:
         raise ValueError("delta must be positive")
+    if engine not in ("auto", "pypfopt", "hone"):
+        raise ValueError("engine must be 'auto', 'pypfopt' or 'hone'")
     universe = list(sigma.index)
     s = sigma.to_numpy(dtype=float)
 
     pi = implied_equilibrium_returns(sigma, market_weights, delta)
     p, q, conf = build_view_matrices(views, universe)
+    # Omega is always Hone's: it is where the user's confidence (and, via
+    # the journal, their calibration) enters. Only the algebra is shared.
     omega = idzorek_omega(p, s, conf, tau)
 
-    tau_sigma_inv = np.linalg.inv(tau * s)
-    omega_inv = np.linalg.inv(omega)
-    m_inv = tau_sigma_inv + p.T @ omega_inv @ p
-    m = np.linalg.inv(m_inv)
-    mu_post = m @ (tau_sigma_inv @ pi.to_numpy() + p.T @ omega_inv @ q)
+    mu_post = m = None
+    used = "hone"
+    if engine in ("auto", "pypfopt"):
+        try:
+            mu_post, m = _posterior_pypfopt(sigma, pi, p, q, omega, tau)
+            used = "pypfopt"
+        except ImportError:
+            if engine == "pypfopt":
+                raise
+        except (ValueError, np.linalg.LinAlgError):
+            if engine == "pypfopt":
+                raise
+    if mu_post is None:
+        mu_post, m = _posterior_hone(s, pi.to_numpy(), p, q, omega, tau)
 
     return BlackLittermanResult(
         posterior_mu=pd.Series(mu_post, index=universe, name="mu_bl"),
@@ -180,4 +212,46 @@ def black_litterman_posterior(
         views=views,
         tau=tau,
         delta=delta,
+        engine=used,
     )
+
+
+def _posterior_pypfopt(
+    sigma: pd.DataFrame,
+    pi: pd.Series,
+    p: np.ndarray,
+    q: np.ndarray,
+    omega: np.ndarray,
+    tau: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """(posterior mean, M) from PyPortfolioOpt's BlackLittermanModel."""
+    # Imported here, not at module top: the library pulls in cvxpy and
+    # scikit-learn (~1s), and only optimization requests need it.
+    from pypfopt.black_litterman import BlackLittermanModel
+
+    model = BlackLittermanModel(sigma, pi=pi, P=p, Q=q, omega=omega, tau=tau)
+    mu_post = model.bl_returns().reindex(sigma.index).to_numpy(dtype=float)
+    # bl_cov() returns Sigma + M; Hone stores M separately and adds Sigma.
+    m = model.bl_cov().reindex(index=sigma.index, columns=sigma.index).to_numpy(dtype=float)
+    return mu_post, m - sigma.to_numpy(dtype=float)
+
+
+def _posterior_hone(
+    s: np.ndarray,
+    pi: np.ndarray,
+    p: np.ndarray,
+    q: np.ndarray,
+    omega: np.ndarray,
+    tau: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Hone's own implementation of the same (stable) formula.
+
+    ``solve`` on the k x k matrix instead of inverting anything n x n —
+    see the module docstring for why that matters.
+    """
+    ts = tau * s
+    middle = p @ ts @ p.T + omega                       # k x k
+    gain = np.linalg.solve(middle, p @ ts).T            # = tau Sigma P' middle^-1  (n x k)
+    mu_post = pi + gain @ (q - p @ pi)
+    m = ts - gain @ p @ ts
+    return mu_post, m

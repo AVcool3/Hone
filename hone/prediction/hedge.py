@@ -47,20 +47,31 @@ the weight.  The journal's calibration map can be applied to that
 confidence first, so a person whose record says "your 80% is really a
 60%" is tilted less.
 
-Everything here is a one-period model with a binary event.  It knows
-nothing about liquidity, position limits, taxes or the chance that the
-market never fills — see ``docs/PREDICTION_MARKETS.md``.
+Everything here is a one-period model with a binary event. It knows
+nothing about position limits or taxes — see ``docs/PREDICTION_MARKETS.md``.
+
+Liquidity
+---------
+The utility maximum above assumes any number of contracts can be bought
+at the quoted price. :mod:`hone.prediction.liquidity` caps the proposed
+position at what the market can actually supply (order-book depth near
+the price, and a share of open interest). Because expected utility is
+concave in the position, any size between zero and the optimum still
+beats not hedging — so a capped hedge is worse than the ideal, never
+worse than nothing. The plan reports both sizes and how much of the
+wanted protection the capped one covers.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 
 import numpy as np
 from scipy.optimize import minimize_scalar
 
 from .contracts import KALSHI_TAKER_FEE_RATE, kalshi_fee
+from .liquidity import Liquidity, average_fill, limit_for
 
 # ------------------------------------------------------------- utility
 def crra_utility(w: np.ndarray | float, gamma: float) -> np.ndarray | float:
@@ -190,6 +201,8 @@ class IncomeExposure:
     fee_multiplier: float = 1.0
     fee_rate: float = KALSHI_TAKER_FEE_RATE
     allow_selling: bool = True
+    #: what the market can actually supply; None = unknown (no cap)
+    liquidity: Liquidity | None = None
 
     def validate(self) -> None:
         if not self.wealth > 0:
@@ -259,6 +272,15 @@ class ContractHedgePlan:
     states: list[StateRow] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     needs_hedge: bool = True
+    #: liquidity: the size the model wanted before the cap, the cap itself,
+    #: what decided it, and the average price the proposed size would fill at
+    contracts_wanted: int = 0
+    liquidity_limit: float | None = None
+    liquidity_capped: bool = False
+    liquidity_basis: str = "unknown"
+    avg_fill_price: float | None = None
+    #: proposed / wanted; 1.0 when not capped, 0.0 when nothing can be bought
+    coverage: float = 1.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -375,13 +397,31 @@ def hedge_income(exp: IncomeExposure) -> ContractHedgePlan:
     else:
         n_star = optimal_contracts(exp, states)
     contracts = int(round(n_star))
+    contracts_wanted = contracts
+
+    # ---- liquidity cap: never propose more than the market can supply
+    lim = limit_for(exp.liquidity, buying=contracts >= 0)
+    capped = lim.limit is not None and abs(contracts) > lim.limit
+    if capped:
+        contracts = int(math.copysign(lim.limit, contracts)) if lim.limit > 0 else 0
     direction = "buy" if contracts >= 0 else "sell"
 
-    # exact accounting for the whole-contract position
+    # The average price the proposed size would really fill at, walking up
+    # the order book. A sell recommendation buys the *other* side, whose
+    # price p' corresponds to receiving 1 - p' for this side.
+    avg_fill = None
+    if exp.liquidity is not None and contracts != 0:
+        asks = exp.liquidity.asks_buy if contracts > 0 else exp.liquidity.asks_sell
+        other = average_fill(asks or [], abs(contracts))
+        if other is not None:
+            avg_fill = other if contracts > 0 else 1.0 - other
+    fill = replace(exp, price=avg_fill) if avg_fill is not None and 0 < avg_fill < 1 else exp
+
+    # exact accounting for the whole-contract position, at the fill price
     w_un, probs = _wealth(exp, states, 0.0, smooth_fee=False)
-    w_hd, _ = _wealth(exp, states, float(contracts), smooth_fee=False)
-    fee = kalshi_fee(abs(contracts), exp.price, exp.fee_multiplier, exp.fee_rate)
-    gross_cost = contracts * exp.price if contracts > 0 else abs(contracts) * (1.0 - exp.price)
+    w_hd, _ = _wealth(fill, states, float(contracts), smooth_fee=False)
+    fee = kalshi_fee(abs(contracts), fill.price, exp.fee_multiplier, exp.fee_rate)
+    gross_cost = contracts * fill.price if contracts > 0 else abs(contracts) * (1.0 - fill.price)
     cost = gross_cost + fee if contracts != 0 else 0.0
 
     ce_un = crra_certainty_equivalent(w_un, probs, exp.gamma)
@@ -440,6 +480,47 @@ def hedge_income(exp: IncomeExposure) -> ContractHedgePlan:
             f"This position ties up {cost / exp.wealth:.0%} of your wealth until "
             "the market settles. Check the close date before committing."
         )
+    if capped and contracts == 0:
+        where = (
+            "on offer near the current price" if "order book" in lim.basis
+            else "open in this market"
+        )
+        warnings.append(
+            f"Your risk profile wants {abs(contracts_wanted):,} contracts, but "
+            f"there are none {where}, so this market can't hedge you right now. "
+            "Look for a more heavily traded market that tracks the same risk."
+        )
+    elif capped:
+        why = {
+            "order book": f"only {lim.limit:,.0f} are on offer within "
+            f"{exp.liquidity.max_slippage * 100:.0f}¢ of the current price",
+            "open interest": f"Hone caps a position at "
+            f"{exp.liquidity.max_share_of_open_interest:.0%} of the contracts "
+            f"already open in this market ({lim.limit:,.0f})",
+        }.get(
+            "order book" if lim.depth is not None and lim.limit == lim.depth else
+            "open interest" if lim.oi_limit is not None else lim.basis,
+            f"the market can only supply about {lim.limit:,.0f}",
+        )
+        warnings.append(
+            f"Your risk profile wants {abs(contracts_wanted):,} contracts, but "
+            f"{why}. The position below is capped at {abs(contracts):,}: it "
+            f"gives {abs(contracts) / abs(contracts_wanted):.0%} of the "
+            "protection you'd ideally want — still better than none."
+        )
+    elif lim.basis == "unknown" and contracts != 0 and exp.loss > 0:
+        warnings.append(
+            "Hone couldn't check how many of these contracts are for sale. "
+            "Look at the order book before buying — thin markets may not "
+            "fill a position this size at this price."
+        )
+    if avg_fill is not None and contracts > 0 and avg_fill > exp.price + 0.005:
+        warnings.append(
+            f"Buying {contracts:,} contracts walks up the order book: the "
+            f"average price is about ${avg_fill:.3f}, not the ${exp.price:.2f} "
+            "quoted. The costs below use the average."
+        )
+
     if exp.loss == 0:
         warnings.append(
             "With no income at stake there is nothing to hedge — this is "
@@ -490,4 +571,12 @@ def hedge_income(exp: IncomeExposure) -> ContractHedgePlan:
         states=rows,
         warnings=warnings,
         needs_hedge=bool(exp.loss > 0 and contracts > 0),
+        contracts_wanted=contracts_wanted,
+        liquidity_limit=lim.limit,
+        liquidity_capped=bool(capped),
+        liquidity_basis=lim.basis,
+        avg_fill_price=avg_fill,
+        coverage=(
+            float(abs(contracts) / abs(contracts_wanted)) if contracts_wanted else 1.0
+        ),
     )

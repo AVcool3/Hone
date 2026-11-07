@@ -455,6 +455,11 @@ function ResultPanel({ result: r, busy, error, onRetry, inputError, price, price
   const states = r.states.filter(st => st.prob > 0.0005);
   const rows = states.map(st => ({ label: stateLabel(st), prob: st.prob, unhedged: st.wealth_unhedged, hedged: st.wealth_hedged }));
   const none = !r.needs_hedge || r.contracts === 0;
+  // The market itself is the limit (see hone/prediction/liquidity.py):
+  // `tooThin` = the model wants a hedge but nothing can be bought;
+  // `capped`  = some can, but fewer than the model wants.
+  const tooThin = r.liquidity_capped && r.contracts === 0 && r.contracts_wanted !== 0;
+  const capped = r.liquidity_capped && r.contracts !== 0;
   const sideWord = (r.side || side || '').toUpperCase();
   const adjusted = Math.abs((r.confidence_used ?? 0) - (r.confidence_stated ?? 0)) > 0.005;
 
@@ -468,7 +473,9 @@ function ResultPanel({ result: r, busy, error, onRetry, inputError, price, price
         </div>
 
         {/* Headline: what to buy, or why nothing. */}
-        {none ? (
+        {tooThin ? (
+          <h2 className="pm-headline">This market is too small to hedge you</h2>
+        ) : none ? (
           <h2 className="pm-headline">No hedge at this price</h2>
         ) : (
           <h2 className="pm-headline">
@@ -479,7 +486,27 @@ function ResultPanel({ result: r, busy, error, onRetry, inputError, price, price
           {label ? <>{label} · </> : null}
           {fmtCents(price)} each{priceIsIllustrative && <> · <Badge tone="sample">Illustrative price</Badge></>}
         </p>
-        {none && (
+        {capped && (
+          <div className="pm-coverage mt-3">
+            <div className="row row--between small">
+              <span>Capped by what the market can supply</span>
+              <span className="num strong">{fmtPct(r.coverage)} of the protection you want</span>
+            </div>
+            <div className="pm-coverage__bar" aria-hidden="true"><i style={{ width: `${Math.min(100, r.coverage * 100)}%` }} /></div>
+            <p className="tiny muted mt-1">
+              Your risk profile wants {fmtNum(Math.abs(r.contracts_wanted))} contracts; {fmtNum(Math.abs(r.contracts))} can be bought
+              {r.liquidity_basis.includes('order book') ? ' near the current price' : ` (10% of the ${fmtNum(r.open_interest ?? 0)} open)`}.
+              {r.avg_fill_price ? <> Average price about {fmtCents(r.avg_fill_price)}.</> : null}
+            </p>
+          </div>
+        )}
+        {tooThin && (
+          <p className="small mt-3">
+            Your risk profile wants {fmtNum(Math.abs(r.contracts_wanted))} contracts, but this market has none on offer near this price.
+            Try a more heavily traded market that tracks the same risk — economy-wide markets (jobs, inflation, gas, rates) are usually deepest.
+          </p>
+        )}
+        {none && !tooThin && (
           <p className="small mt-3">
             At your risk aversion and this price, the cover costs more than the protection is worth to you — or your loss is
             too small relative to your savings to need it. A cheaper strike, a bigger loss, or a closer contract can change that.

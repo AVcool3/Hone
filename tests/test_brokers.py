@@ -412,3 +412,14 @@ def test_optimize_and_portfolio_agree_on_value(broker_client):
     port = broker_client.post("/api/portfolio", json=_market()).json()
     opt = broker_client.post("/api/optimize", json={**_market(), "gamma": 3.0, "views": []}).json()
     assert opt["hedge_plan"]["portfolio_value"] == pytest.approx(port["portfolio_value"])
+
+
+def test_keys_can_use_the_cloud_environment_names(monkeypatch):
+    """SnapTrade_ClientID / SnapTrade_API (as saved in the cloud environment)."""
+    for v in ("SNAPTRADE_CLIENT_ID", "SNAPTRADE_CONSUMER_KEY"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("SnapTrade_ClientID", "cid")
+    monkeypatch.setenv("SnapTrade_API", "ckey")
+    assert snap.configured()
+    c = REAL_CLIENT()
+    assert (c.client_id, c.consumer_key) == ("cid", "ckey")

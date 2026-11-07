@@ -80,11 +80,24 @@ class SnapTradeError(RuntimeError):
         self.code = code
 
 
+#: Environment variable names Hone accepts for each key, first match wins.
+#: The second names match how the keys are saved in this project's cloud
+#: environment settings; add others here if you name them differently.
+CLIENT_ID_VARS = ("SNAPTRADE_CLIENT_ID", "SnapTrade_ClientID")
+CONSUMER_KEY_VARS = ("SNAPTRADE_CONSUMER_KEY", "SnapTrade_API")
+
+
+def _env(names: tuple[str, ...]) -> str:
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 def configured() -> bool:
     """True when this server has SnapTrade keys, i.e. brokerage linking is on."""
-    return bool(
-        os.environ.get("SNAPTRADE_CLIENT_ID") and os.environ.get("SNAPTRADE_CONSUMER_KEY")
-    )
+    return bool(_env(CLIENT_ID_VARS) and _env(CONSUMER_KEY_VARS))
 
 
 def _signature(consumer_key: str, path: str, query: str, body: Any) -> str:
@@ -113,8 +126,8 @@ class SnapTradeClient:
         base_url: str = SNAPTRADE_URL,
         session: Any | None = None,
     ) -> None:
-        self.client_id = client_id or os.environ.get("SNAPTRADE_CLIENT_ID", "")
-        self.consumer_key = consumer_key or os.environ.get("SNAPTRADE_CONSUMER_KEY", "")
+        self.client_id = client_id or _env(CLIENT_ID_VARS)
+        self.consumer_key = consumer_key or _env(CONSUMER_KEY_VARS)
         if not self.client_id or not self.consumer_key:
             raise SnapTradeError(
                 "Brokerage linking isn't configured on this server: set "

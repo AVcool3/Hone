@@ -2108,6 +2108,7 @@ def create_app() -> FastAPI:
         should pay per contract.  See hone/prediction/hedge.py.
         """
         from ..prediction.hedge import IncomeExposure, hedge_income
+        from ..prediction.liquidity import liquidity_for_market
 
         confidence = req.confidence
         if (
@@ -2139,6 +2140,12 @@ def create_app() -> FastAPI:
             confidence=confidence,
             basis_correlation=req.basis_correlation,
             fee_multiplier=req.fee_multiplier if req.include_fees else 0.0,
+            # What the market can actually supply, looked up server-side
+            # from the ticker (catalog open interest + live order book).
+            liquidity=(
+                liquidity_for_market(req.market_ticker, req.side)
+                if req.check_liquidity and req.market_ticker else None
+            ),
         )
         try:
             plan = hedge_income(exp)
@@ -2151,6 +2158,7 @@ def create_app() -> FastAPI:
             confidence_stated=req.confidence,
             market_ticker=req.market_ticker,
             side=req.side,
+            open_interest=exp.liquidity.open_interest if exp.liquidity else None,
             **payload,
         )
 

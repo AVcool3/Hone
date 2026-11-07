@@ -709,6 +709,8 @@ class ContractHedgeRequest(BaseModel):
     #: free text, echoed back so the page can label the result
     market_ticker: str | None = None
     side: str | None = None
+    #: cap the position at what the market can supply (looked up by ticker)
+    check_liquidity: bool = True
 
 
 class ContractStateOut(BaseModel):
@@ -758,6 +760,15 @@ class ContractHedgeResponse(BaseModel):
     confidence_stated: float
     market_ticker: str | None = None
     side: str | None = None
+    #: liquidity cap (hone/prediction/liquidity.py): the size the model
+    #: wanted, the cap, what decided it, and the realistic average price
+    contracts_wanted: int = 0
+    liquidity_limit: float | None = None
+    liquidity_capped: bool = False
+    liquidity_basis: str = "unknown"
+    avg_fill_price: float | None = None
+    coverage: float = 1.0
+    open_interest: float | None = None
 
 
 class PredictionMarketOut(BaseModel):

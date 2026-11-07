@@ -67,11 +67,13 @@ class TestCap:
         assert any("couldn't check" in w for w in plan.warnings)
 
     def test_open_interest_cap(self):
+        # 25% of open interest (was 10% — the segment sweep found 10% gave up
+        # most of the value in every thin market; deep ones were unaffected)
         plan = hedge_income(_exposure(liquidity=liq.Liquidity(open_interest=4790)))
-        assert plan.liquidity_capped and plan.contracts == 479    # 10% of 4,790
+        assert plan.liquidity_capped and plan.contracts == 1197    # 25% of 4,790
         assert plan.contracts_wanted > plan.contracts
-        assert plan.coverage == pytest.approx(479 / plan.contracts_wanted)
-        assert any("10% of the contracts" in w for w in plan.warnings)
+        assert plan.coverage == pytest.approx(1197 / plan.contracts_wanted)
+        assert any("25% of the contracts" in w for w in plan.warnings)
 
     def test_order_book_cap_and_realistic_price(self):
         asks = [(0.30, 100.0), (0.31, 150.0), (0.40, 9999.0)]
@@ -100,14 +102,22 @@ class TestCap:
         assert roomy.ce_gain == pytest.approx(free.ce_gain)
 
     def test_sell_recommendation_is_capped_by_the_other_side(self):
-        """A 'sell' buys the other side, so its depth is what limits it."""
+        """A 'sell' buys the other side, so its depth is what limits it.
+        (Only possible with no income at stake: since v2 someone with
+        exposure is never told to sell the protection they need.)"""
         plan_free = hedge_income(_exposure(loss=0.0, own_prob=0.05, confidence=0.9, price=0.30))
         assert plan_free.contracts < 0
         plan = hedge_income(_exposure(
             loss=0.0, own_prob=0.05, confidence=0.9, price=0.30,
-            liquidity=liq.Liquidity(asks_buy=[(0.30, 1e6)], asks_sell=[(0.70, 40.0)]),
+            liquidity=liq.Liquidity(asks_buy=[(0.30, 1e6)], asks_sell=[(0.70, 400.0)]),
         ))
-        assert plan.contracts == -40 and plan.direction == "sell"
+        assert plan.contracts == -400 and plan.direction == "sell"
+
+    def test_hedger_is_never_told_to_sell_their_protection(self):
+        """Segment-sweep finding: half of optimists with income at risk were
+        told to sell the side that protects them."""
+        plan = hedge_income(_exposure(own_prob=0.05, confidence=0.9, price=0.30))
+        assert plan.contracts >= 0 and plan.direction == "buy"
 
 
 # --------------------------------------------------------------- the API
@@ -130,7 +140,7 @@ class TestAPI:
         assert r.status_code == 200, r.text
         out = r.json()
         assert out["liquidity_capped"] and out["open_interest"] == 2000
-        assert out["contracts"] == 200                        # min(500 on book, 10% of 2,000)
+        assert out["contracts"] == 500                        # min(500 on book, 25% of 2,000)
         assert out["contracts_wanted"] > 200
         assert out["liquidity_basis"] == "order book and open interest"
 
@@ -147,4 +157,4 @@ class TestAPI:
         monkeypatch.setattr(liq, "fetch_orderbook", lambda ticker, client=None: None)
         out = api.post("/api/predict/hedge?asset_class=prediction",
                        json={**BODY, "market_ticker": "KXTEST-1", "side": "yes"}).json()
-        assert out["liquidity_basis"] == "open interest" and out["contracts"] == 200
+        assert out["liquidity_basis"] == "open interest" and out["contracts"] == 500   # 25% of 2,000

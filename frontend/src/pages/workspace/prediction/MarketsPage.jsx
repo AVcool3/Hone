@@ -43,7 +43,7 @@ export default function MarketsPage() {
         side,
         price: clamp(askFor(market, side) ?? cur.pm.price, 0.01, 0.99),
         label: market.title,
-        basis: BASIS_DEFAULT[series.basis] ?? cur.pm.basis,
+        basis: series.basis_default ?? BASIS_DEFAULT[series.basis] ?? cur.pm.basis,
       },
     }));
     nav(appPath(SLUG, 'hedge'));

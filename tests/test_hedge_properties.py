@@ -32,6 +32,14 @@ from hone.prediction.hedge import (
     optimal_contracts,
     reservation_price,
 )
+
+# These tests check the mathematical model itself, so the sizing safety
+# margins (hedge.BASIS_SHRINK, hedge.PRICE_BUFFER) are switched off here.
+# tests/test_hedge_margins.py checks the margins on their own.
+import functools as _functools  # noqa: E402
+
+IncomeExposure = _functools.partial(IncomeExposure, basis_shrink=1.0, price_buffer=0.0)
+
 from hone.prediction.liquidity import (
     Liquidity,
     asks_from_orderbook,
@@ -161,12 +169,9 @@ class TestBlendBelief:
             assert blend_belief(m, own, 0.0) == pytest.approx(m)
             assert blend_belief(m, None, 0.7) == m
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BUG (low): blend_belief clips to [0.01, 0.99] only when a view is "
-        "given, so for a market price outside that band 'no view' and 'a view at "
-        "confidence 0' disagree (0.995 vs 0.99) - hedge.py:116-124",
-    )
+    # Regression for a fixed bug (low): blend_belief clips to [0.01, 0.99] only
+    # when a view is  given, so for a market price outside that band 'no view'
+    # and 'a view at  confidence 0' disagree (0.995 vs 0.99) - hedge.py:116-124
     def test_confidence_zero_is_the_same_as_no_view_at_extreme_prices(self):
         for m in (0.001, 0.005, 0.995, 0.999):
             assert blend_belief(m, 0.5, 0.0) == pytest.approx(blend_belief(m, None, 0.0))
@@ -322,22 +327,45 @@ class TestPlanAccounting:
             edge = c * (plan.belief - fill)
             assert plan.expected_wealth_hedged - plan.expected_wealth_unhedged == pytest.approx(
                 edge - fee, abs=1e-6 * exp.wealth)
-            # a pure-hedge decomposition that adds up
+            # a decomposition that adds up: insurance (best position at market
+            # odds) + what the user's view adds. Since v2 the insurance part is
+            # the CRRA optimum at market odds, not rho*L; rho*L (scaled when the
+            # loss and event probabilities differ) is reported separately.
             assert plan.pure_hedge_contracts + plan.speculative_contracts == pytest.approx(plan.n_star)
-            assert plan.pure_hedge_contracts == pytest.approx(plan.basis_correlation * exp.loss)
+            if plan.loss_prob == pytest.approx(plan.belief):
+                assert plan.variance_min_contracts == pytest.approx(plan.basis_correlation * exp.loss)
 
     def test_liquidity_cap_direction_and_coverage(self, sweep):
         for exp, plan in sweep:
             c, wanted = plan.contracts, plan.contracts_wanted
-            assert wanted == int(round(plan.n_star))
+            # v2: the ideal is the better whole-number neighbour (fees round
+            # to cents), so it's within one contract of the continuous optimum.
+            # ...or zero, when no whole-contract position beats none: the fee
+            # rounds up to the cent, which can sink a small optimum. Check that
+            # directly with the engine's own valuation at the quoted price.
+            if not abs(wanted - plan.n_star) <= 1.0:
+                assert wanted == 0, (wanted, plan.n_star)
+                from hone.prediction import hedge as H
+                st, _ = joint_states(plan.belief, plan.loss_prob, exp.basis_correlation)
+                live, qp = H._live(st), H._Pricer(exp, use_book=False)
+                v0 = H._log_ce(*H._wealth_at(exp, live, 0.0, qp, False), exp.gamma)
+                k = int(round(plan.n_star))
+                vk = H._log_ce(*H._wealth_at(exp, live, float(k), qp, False), exp.gamma)
+                assert vk <= v0 + 1e-12, (k, vk, v0)
             assert 0.0 <= plan.coverage <= 1.0
+            not_worth = any("worth acting on" in w for w in plan.warnings)
             if plan.liquidity_limit is not None:
                 assert abs(c) <= plan.liquidity_limit
+            elif not_worth:
+                assert c == 0
             else:
                 assert c == wanted
             assert c * wanted >= 0  # never the opposite direction
             assert abs(c) <= abs(wanted)
-            assert plan.liquidity_capped == (c != wanted)
+            # capped = the market's limit was below what the model wanted
+            # (also when that small amount then wasn't worth trading)
+            assert plan.liquidity_capped == (
+                plan.liquidity_limit is not None and abs(wanted) > plan.liquidity_limit)
             if wanted:
                 assert plan.coverage == pytest.approx(abs(c) / abs(wanted))
             if not exp.allow_selling:
@@ -357,13 +385,11 @@ class TestPlanAccounting:
         for exp, plan in sweep[:200]:
             assert hedge_income(exp).to_dict() == plan.to_dict()
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BUG (medium): worst_hedged is min() over all four joint states, "
-        "including the zero-probability 'loss but contract does not pay' state at "
-        "basis 1; the page's 'Worst season' shows a state that cannot happen - "
-        "hedge.py:561 (states rows are filtered at :538, the worst is not)",
-    )
+    # Regression for a fixed bug (medium): worst_hedged is min() over all four
+    # joint states,  including the zero-probability 'loss but contract does not
+    # pay' state at  basis 1; the page's 'Worst season' shows a state that
+    # cannot happen -  hedge.py:561 (states rows are filtered at :538, the worst
+    # is not)
     def test_worst_case_is_a_state_that_can_happen(self):
         # the default exposure of tests/test_prediction.py, fee-free
         plan = hedge_income(IncomeExposure(wealth=38_000, loss=9_000, price=0.35,
@@ -373,14 +399,12 @@ class TestPlanAccounting:
         assert plan.worst_hedged == pytest.approx(wh.min())      # ...34,850, not 25,850
 
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BUG (low; gamma >~ 10 only): joint_states (hedge.py:152-155) leaves "
-        "2.8e-17 instead of 0 in the 'impossible' states at basis 1 for ~8% of "
-        "probabilities (e.g. 0.515); at gamma = 20 that phantom state's marginal "
-        "utility dominates, so a fair, fee-free, perfect-basis hedge comes out "
-        "55,782 instead of 60,000 with std 2,108 instead of 0",
-    )
+    # Regression for a fixed bug (low; gamma >~ 10 only): joint_states
+    # (hedge.py:152-155) leaves  2.8e-17 instead of 0 in the 'impossible' states
+    # at basis 1 for ~8% of  probabilities (e.g. 0.515); at gamma = 20 that
+    # phantom state's marginal  utility dominates, so a fair, fee-free, perfect-
+    # basis hedge comes out  55,782 instead of 60,000 with std 2,108 instead of
+    # 0
     def test_phantom_states_do_not_move_the_hedge(self):
         states, _ = joint_states(0.515, 0.515, 1.0)
         assert all(s.prob == 0.0 for s in states if s.pays != s.loss)
@@ -425,68 +449,57 @@ class TestConcavity:
             worst = min(worst, plan.ce_gain)
         assert worst >= -0.011
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BUG (medium): the position is sized at the quoted price, then "
-        "costed at the order-book average fill (hedge.py:399-422) without "
-        "re-optimizing, so a fill a few cents worse turns a +$1.72 hedge into a "
-        "-$36.74 one that is still proposed (needs_hedge=True)",
-    )
+    # Regression for B4 (medium): the position used to be sized at the quoted
+    # price, then costed at the order-book average fill without re-optimizing,
+    # so a fill a few cents worse turned a +$1.72 hedge into a -$36.74 one that
+    # was still proposed. Since v2 sizing walks the book itself: here every
+    # contract after the first costs 38c, above the 36.9c it's worth, so the
+    # right answer is no position — with an explanation.
     def test_walking_the_book_never_proposes_a_hedge_worse_than_none(self):
         plan = hedge_income(IncomeExposure(
             wealth=38_000, loss=9_000, price=0.35, gamma=0.3,
             liquidity=Liquidity(asks_buy=[(0.35, 1.0), (0.38, 1e6)])))
-        assert plan.contracts > 0 and plan.avg_fill_price > 0.379
         assert plan.ce_gain >= 0
+        assert plan.reservation_price < 0.38
+        assert plan.contracts == 0 and plan.contracts_wanted > 1000
+        assert any("rather than overpay" in w for w in plan.warnings)
 
 
 # ========================================================== solvency bugs
 class TestSolvencyBugs:
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BUG (medium-high): _bounds() (hedge.py:304-311) and the -inf "
-        "check in _expected_utility (:316) apply to zero-probability states, so "
-        "at basis 1 (the default) the impossible 'loss, no payout' state caps the "
-        "hedge at (W-L)/price: 995 contracts proposed against a 9,500 loss whose "
-        "full hedge is solvent (certain wealth 5,250)",
-    )
+    # Regression for a fixed bug (medium-high): _bounds() (hedge.py:304-311) and
+    # the -inf  check in _expected_utility (:316) apply to zero-probability
+    # states, so  at basis 1 (the default) the impossible 'loss, no payout'
+    # state caps the  hedge at (W-L)/price: 995 contracts proposed against a
+    # 9,500 loss whose  full hedge is solvent (certain wealth 5,250)
     def test_full_basis_full_hedge_is_not_capped_by_an_impossible_state(self):
         plan = hedge_income(IncomeExposure(wealth=10_000, loss=9_500, price=0.5,
                                            gamma=2.0, fee_rate=0.0))
         assert plan.contracts >= 9_000
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=ValueError,
-        reason="BUG (medium): gamma <= 0 sets n_star = rho*loss (hedge.py:391-396) "
-        "without the solvency bounds, so a risk-seeking/neutral user with a large "
-        "loss gets 'wealth must be positive in every state' (HTTP 422) instead of a plan",
-    )
+    # Regression for a fixed bug (medium): gamma <= 0 sets n_star = rho*loss
+    # (hedge.py:391-396) without the solvency bounds, so a risk-seeking/neutral
+    # user with a large loss gets 'wealth must be positive in every state' (HTTP
+    # 422) instead of a plan
     @pytest.mark.parametrize("gamma,rho", [(0.0, 1.0), (-0.5, 0.5), (-2.0, 1.0)])
     def test_risk_seeking_user_with_a_big_loss_still_gets_a_plan(self, gamma, rho):
         plan = hedge_income(IncomeExposure(wealth=10_000, loss=9_500, price=0.5,
                                            gamma=gamma, basis_correlation=rho))
         assert all(r.wealth_hedged > 0 for r in plan.states)
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=ValueError,
-        reason="BUG (low): int(round(n_star)) (hedge.py:399) can round past the "
-        "solvency bound hi = 0.995*(W-L)/cost; when the cushion is below ~100 "
-        "contracts' cost the 0.5% margin does not absorb the extra half-contract "
-        "and hedge_income raises",
-    )
+    # Regression for a fixed bug (low): int(round(n_star)) (hedge.py:399) can
+    # round past the solvency bound hi = 0.995*(W-L)/cost; when the cushion is
+    # below ~100 contracts' cost the 0.5% margin does not absorb the extra half-
+    # contract and hedge_income raises
     @pytest.mark.parametrize("loss,rho", [(9_999.6, 1.0), (9_999.7, 1.0)])
     def test_rounding_never_rounds_past_the_solvency_bound(self, loss, rho):
         plan = hedge_income(IncomeExposure(wealth=10_000, loss=loss, price=0.4,
                                            gamma=2.0, basis_correlation=rho))
         assert all(r.wealth_hedged > 0 for r in plan.states)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BUG (low): same rounding cause with basis risk, where the state "
-        "that goes negative is a real one (~4% of 1,000 small-cushion cases crash)",
-    )
+    # Regression for a fixed bug (low): same rounding cause with basis risk,
+    # where the state  that goes negative is a real one (~4% of 1,000 small-
+    # cushion cases crash)
     def test_rounding_insolvency_also_happens_with_basis_risk(self):
         """Random search over small cushions with rho < 1."""
         rng = np.random.default_rng(10)
@@ -504,27 +517,20 @@ class TestSolvencyBugs:
                 crashes += 1
         assert crashes == 0
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=ValueError,
-        reason="BUG (medium): the order-book average fill is applied after sizing "
-        "(hedge.py:418-422) and never checked against the solvency bound, so "
-        "a fill 3c above the quote pushes the 'loss, no payout' state negative "
-        "and hedge_income raises",
-    )
+    # Regression for a fixed bug (medium): the order-book average fill is
+    # applied after sizing (hedge.py:418-422) and never checked against the
+    # solvency bound, so a fill 3c above the quote pushes the 'loss, no payout'
+    # state negative and hedge_income raises
     def test_walking_the_book_keeps_wealth_positive(self):
         hedge_income(IncomeExposure(
             wealth=10_000, loss=7_400, price=0.21, gamma=1.0, basis_correlation=0.98,
             own_prob=0.72, confidence=1.0,
             liquidity=Liquidity(asks_buy=[(0.21, 10.0), (0.24, 1e7)])))
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=ZeroDivisionError,
-        reason="BUG (low): crra_inverse (hedge.py:85-89) computes 0.0 ** negative "
-        "when w^(1-gamma) underflows; ZeroDivisionError is not caught by the API's "
-        "ValueError handler, so this is an HTTP 500 (gamma is unbounded in the schema)",
-    )
+    # Regression for a fixed bug (low): crra_inverse (hedge.py:85-89) computes
+    # 0.0 ** negative when w^(1-gamma) underflows; ZeroDivisionError is not
+    # caught by the API's ValueError handler, so this is an HTTP 500 (gamma is
+    # unbounded in the schema)
     def test_large_gamma_does_not_underflow(self):
         hedge_income(IncomeExposure(wealth=1e6, loss=1e5, price=0.35, gamma=60.0))
 
@@ -547,8 +553,10 @@ class TestPureHedge:
 
     def test_with_basis_risk_crra_departs_from_rho_times_loss(self):
         """rho*L is the variance-minimizing hedge, not the CRRA optimum: at a
-        fair price with no fees the gap grows with L/W (it is what the UI
-        labels 'speculative').  Measured bound: |n* - rho L| / L <= 1.5 * L/W."""
+        fair price with no fees the gap grows with L/W. Measured bound:
+        |n* - rho L| / L <= 1.5 * L/W. (Design finding, fixed in v2: the gap
+        used to be labelled 'speculative'; with no view it is now all
+        insurance, and the speculative part is exactly zero.)"""
         rng = np.random.default_rng(12)
         worst = 0.0
         for _ in range(800):
@@ -558,7 +566,8 @@ class TestPureHedge:
                 wealth=w, loss=w * frac, price=float(rng.uniform(0.05, 0.95)),
                 gamma=float(rng.uniform(0.2, 8)), basis_correlation=float(rng.uniform(0.05, 1)),
                 fee_rate=0.0))
-            dev = abs(plan.speculative_contracts) / (w * frac)
+            assert plan.speculative_contracts == 0.0           # no view, no bet
+            dev = abs(plan.pure_hedge_contracts - plan.variance_min_contracts) / (w * frac)
             worst = max(worst, dev / frac)
             assert dev <= 1.5 * frac + 0.005
         assert worst > 0.3  # the gap is real, not rounding
@@ -720,7 +729,7 @@ class TestLiquidityFunctions:
             if asks is not None:
                 cands.append(asks[0][1] + asks[1][1])
             if oi is not None:
-                cands.append(math.floor(0.1 * oi))
+                cands.append(math.floor(liq.max_share_of_open_interest * oi))
             if not cands:
                 assert lim.limit is None
             else:
@@ -796,17 +805,20 @@ def test_gamma_one_branch_is_continuous_up_to_solver_noise():
         assert abs(p.ce_gain - ref.ce_gain) < 0.01
 
 
-def test_gamma_zero_is_a_cliff():
-    """Design finding (documented, not xfailed): gamma <= 0 shows the pure
-    hedge with a warning, gamma = 0.01 shows (with fees) no position at all,
-    and at gamma = 0 the proposed position has a negative CE gain at the
-    user's own preferences (fees, no edge)."""
+def test_gamma_zero_is_not_a_cliff():
+    """Design finding, fixed in v2. It used to be a cliff: gamma <= 0 showed
+    the full hedge (9,000 contracts, negative value at the user's own
+    preferences) while gamma = 0.01 showed none. Now risk-neutral or
+    risk-seeking preferences get no position and an explanation, and the
+    position grows smoothly from zero as gamma rises."""
     base = dict(wealth=38_000, loss=9_000, price=0.35)
     at0 = hedge_income(IncomeExposure(gamma=0.0, **base))
     near = hedge_income(IncomeExposure(gamma=0.01, **base))
-    assert at0.contracts == 9_000 and near.contracts == 0
-    assert at0.ce_gain < 0 and at0.needs_hedge
+    assert at0.contracts == 0 and near.contracts == 0
+    assert at0.ce_gain == 0 and not at0.needs_hedge
     assert any("risk-neutral" in w for w in at0.warnings)
+    sizes = [hedge_income(IncomeExposure(gamma=g, **base)).contracts for g in (0.5, 2, 6)]
+    assert sizes == sorted(sizes)
 
 
 def test_expected_utility_is_concave_in_the_position():
@@ -823,12 +835,10 @@ def test_expected_utility_is_concave_in_the_position():
         assert np.all(second <= 1e-12 * np.abs(eu).max())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG (low): total_premium uses the quoted price (hedge.py:568) while "
-    "cost and fee use the order-book average fill (:423-425), so the premium "
-    "understates what the walked book really charges",
-)
+# Regression for a fixed bug (low): total_premium uses the quoted price
+# (hedge.py:568) while  cost and fee use the order-book average fill
+# (:423-425), so the premium  understates what the walked book really
+# charges
 def test_total_premium_uses_the_fill_price():
     plan = hedge_income(IncomeExposure(
         wealth=38_000, loss=9_000, price=0.35, gamma=1.5,

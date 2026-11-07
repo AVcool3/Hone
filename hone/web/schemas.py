@@ -688,7 +688,12 @@ CompileRequest.model_rebuild()
 class ContractHedgeRequest(BaseModel):
     """Size an event contract against income risk — see hone/prediction/hedge.py."""
 
-    gamma: float
+    #: risk aversion; bounded so nonsense can't reach the optimizer (the
+    #: questionnaire produces roughly -3 to 15)
+    gamma: float = Field(ge=-10, le=100)
+    #: optional: the person's own chance of the bad outcome, when it differs
+    #: from the contract's (a layoff is rarer than "unemployment above X")
+    loss_prob: float | None = Field(default=None, gt=0, lt=1)
     #: money available over the horizon (earnings + the savings a bad season would eat)
     wealth: float = Field(gt=0)
     #: dollars lost if the bad outcome happens; 0 means pure speculation
@@ -711,6 +716,9 @@ class ContractHedgeRequest(BaseModel):
     side: str | None = None
     #: cap the position at what the market can supply (looked up by ticker)
     check_liquidity: bool = True
+    #: size with the safety margins (hedge.BASIS_SHRINK / PRICE_BUFFER);
+    #: switch off only to see the textbook model
+    safety_margins: bool = True
 
 
 class ContractStateOut(BaseModel):
@@ -769,6 +777,10 @@ class ContractHedgeResponse(BaseModel):
     avg_fill_price: float | None = None
     coverage: float = 1.0
     open_interest: float | None = None
+    #: v2 decomposition extras (see hedge.py)
+    variance_min_contracts: float = 0.0
+    view_tilt_capped: bool = False
+    loss_prob: float = 0.0
 
 
 class PredictionMarketOut(BaseModel):

@@ -83,7 +83,9 @@ CONFS = [0.2, 0.4, 0.6, 0.8, 1.0]
 PRICES = [0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90]
 TILT_CAPS = [0.0, 0.25, 0.5, 1.0]  # speculative tilt capped at X * pure hedge
 
-DEFAULT_LIQ = dict(oi_share=0.10, slippage=0.03, book="flat")
+# The shipped policy, read from the engine so this can never drift from it.
+from hone.prediction.liquidity import DEFAULT_MAX_SHARE_OF_OI, DEFAULT_MAX_SLIPPAGE  # noqa: E402
+DEFAULT_LIQ = dict(oi_share=DEFAULT_MAX_SHARE_OF_OI, slippage=DEFAULT_MAX_SLIPPAGE, book="flat")
 UNCAPPED = dict(oi_share=None, slippage=None, book=None)
 
 

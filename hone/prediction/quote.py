@@ -57,7 +57,7 @@ import pandas as pd
 from scipy import stats
 
 from .climate import Place, geocode, snowfall_history
-from .hedge import IncomeExposure, hedge_income
+from .hedge import BASIS_SHRINK, IncomeExposure, hedge_income
 
 
 # --------------------------------------------------------------- assumptions
@@ -367,6 +367,9 @@ def quote(
             wealth=wealth, loss=loss_used, price=loaded, market_prob=p,
             gamma=gamma, basis_correlation=rho, fee_multiplier=0.0,
             allow_selling=False,  # a customer can only buy protection
+            # Hone sets this price itself, so there's no slippage to allow for;
+            # and "a contract that always paid" really does track perfectly.
+            price_buffer=0.0, basis_shrink=1.0 if rho >= 1.0 else BASIS_SHRINK,
         ))
 
     plan = size(basis)

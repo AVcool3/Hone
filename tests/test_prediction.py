@@ -34,7 +34,9 @@ from frontend_source import built_index, source  # React UI source (see tests/fr
 
 
 def exposure(**kw):
-    base = dict(wealth=38_000.0, loss=9_000.0, price=0.35, gamma=1.5)
+    # The theory tests check the mathematical model itself, so the sizing
+    # safety margins are off unless a test sets them (see test_hedge_margins.py).
+    base = dict(wealth=38_000.0, loss=9_000.0, price=0.35, gamma=1.5, basis_shrink=1.0, price_buffer=0.0)
     base.update(kw)
     return IncomeExposure(**base)
 
@@ -120,7 +122,10 @@ class TestHedgeTheory:
 
     def test_basis_risk_shrinks_the_hedge_to_rho_times_loss(self):
         plan = hedge_income(exposure(basis_correlation=0.6, fee_rate=0.0))
-        assert plan.pure_hedge_contracts == pytest.approx(0.6 * 9_000)
+        # rho*L is the variance-minimizing reference; the insurance actually
+        # proposed is the CRRA optimum at market odds, close to it here.
+        assert plan.variance_min_contracts == pytest.approx(0.6 * 9_000)
+        assert plan.pure_hedge_contracts == pytest.approx(0.6 * 9_000, rel=0.05)
         assert plan.contracts < 9_000
         assert plan.std_hedged > 0  # residual risk stays
         full = hedge_income(exposure(fee_rate=0.0))
@@ -163,9 +168,11 @@ class TestHedgeTheory:
     def test_kelly_signed_against_the_side(self):
         assert kelly_fraction(0.3, 0.4) < 0
 
-    def test_risk_seeking_gamma_gets_the_pure_hedge_and_a_warning(self):
+    def test_risk_seeking_gamma_gets_no_position_and_a_warning(self):
+        # v2: risk-neutral/seeking preferences don't want insurance, so no
+        # position (the old full hedge had negative value at these preferences)
         plan = hedge_income(exposure(gamma=-0.5))
-        assert plan.contracts == 9_000
+        assert plan.contracts == 0 and not plan.needs_hedge
         assert any("risk-seeking" in w for w in plan.warnings)
 
     def test_wealth_stays_positive_in_every_state(self):
@@ -309,7 +316,9 @@ class TestWeb:
         r = client.post("/api/predict/hedge", json={"gamma": 1.5, "wealth": 38000, "loss": 9000, "price": 0.35})
         assert r.status_code == 200
         body = r.json()
-        plan = hedge_income(exposure())
+        # The API sizes with the safety margins on (the default).
+        from hone.prediction.hedge import BASIS_SHRINK, PRICE_BUFFER
+        plan = hedge_income(exposure(basis_shrink=BASIS_SHRINK, price_buffer=PRICE_BUFFER))
         assert body["contracts"] == plan.contracts
         assert body["tier"]["tier"] == 26
         assert body["ce_gain"] == pytest.approx(plan.ce_gain)
@@ -326,7 +335,11 @@ class TestWeb:
         on = client.post("/api/predict/hedge", json={"gamma": 1.5, "wealth": 38000, "loss": 9000, "price": 0.35}).json()
         off = client.post("/api/predict/hedge", json={"gamma": 1.5, "wealth": 38000, "loss": 9000, "price": 0.35, "include_fees": False}).json()
         assert off["fee"] == 0 and on["fee"] > 0
-        assert off["contracts"] == 9000
+        # textbook model (no safety margins), fair price, no fees: insure every dollar
+        pure = client.post("/api/predict/hedge", json={"gamma": 1.5, "wealth": 38000, "loss": 9000, "price": 0.35,
+                                                        "include_fees": False, "safety_margins": False}).json()
+        assert pure["contracts"] == 9000
+        assert 0 < off["contracts"] < 9000      # the margins size more cautiously
 
     def test_calibration_map_shrinks_confidence(self, client):
         body = {"gamma": 1.5, "wealth": 38000, "loss": 9000, "price": 0.35, "own_prob": 0.6, "confidence": 0.8,

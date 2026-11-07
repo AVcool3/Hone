@@ -42,7 +42,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 import pandas as pd
 
-from hone.prediction.hedge import IncomeExposure, crra_utility, crra_inverse, hedge_income, joint_states
+from hone.prediction.hedge import IncomeExposure, crra_certainty_equivalent, hedge_income, joint_states
 from hone.prediction.liquidity import Liquidity
 
 
@@ -65,11 +65,13 @@ class Occupation:
 #: series). Income and loss figures are round, plausible values for the
 #: group, not survey data — change them to test other assumptions.
 OCCUPATIONS = [
-    Occupation("rideshare", "Rideshare / delivery driver (fuel costs)", 45_000, 0.10, 0.85,
+    # basis 0.6 / 0.8 / 0.05: measured upper bounds on settled Kalshi markets
+    # (findings/02_history.md: gas 0.52-0.68, CPI 0.79-0.82, U3 vs one job 0.02)
+    Occupation("rideshare", "Rideshare / delivery driver (fuel costs)", 45_000, 0.10, 0.60,
                "KXAAAGASM", 0.48, 30_861, 13_873),
-    Occupation("retiree", "Retiree on fixed income (inflation)", 40_000, 0.06, 0.90,
+    Occupation("retiree", "Retiree on fixed income (inflation)", 40_000, 0.06, 0.80,
                "KXCPIYOY", 0.35, 57_385, 6_866),
-    Occupation("contractor", "Contract worker (unemployment risk)", 70_000, 0.50, 0.30,
+    Occupation("contractor", "Contract worker (unemployment risk)", 70_000, 0.50, 0.05,
                "KXU3MAX", 0.10, 10_668, 10_033),
     Occupation("realtor", "Real-estate agent / mortgage broker (rates)", 80_000, 0.40, 0.50,
                "KX30YMORTW", 0.42, 723, 1_044),
@@ -174,7 +176,9 @@ def realized(p: dict, plan, truth: Truth = Truth(), n: int = 0) -> dict:
     if (w_hd <= 0).any() or (w_un <= 0).any():
         return {"ce_gain_true": -math.inf, "ruin": True}
     g = p["gamma"]
-    ce = lambda w: crra_inverse(float(np.sum(probs * crra_utility(w, g))), g)
+    # The engine's certainty equivalent: stable at any gamma (the plain
+    # U^-1(E[U]) form underflows to 0 around gamma = 60).
+    ce = lambda w: crra_certainty_equivalent(w, probs, g)
     return {
         "ce_gain_true": ce(w_hd) - ce(w_un),
         "ruin": False,

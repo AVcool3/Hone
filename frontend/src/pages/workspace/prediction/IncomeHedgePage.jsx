@@ -157,7 +157,7 @@ export default function IncomeHedgePage() {
   const chooseIndustry = key => setPm({ industry: key, seriesTicker: null, marketTicker: null, side: null });
   const chooseSeries = ticker => {
     const s = industry?.series.find(x => x.ticker === ticker);
-    setPm({ seriesTicker: ticker, marketTicker: null, side: null, basis: BASIS_DEFAULT[s?.basis] ?? pm.basis });
+    setPm({ seriesTicker: ticker, marketTicker: null, side: null, basis: s?.basis_default ?? BASIS_DEFAULT[s?.basis] ?? pm.basis });
   };
   const chooseMarket = m => {
     const sd = side;
@@ -554,13 +554,24 @@ function ResultPanel({ result: r, busy, error, onRetry, inputError, price, price
           <div>
             <div className="strong">Why this size</div>
             <div className="pm-split">
-              <div><span className="num">{fmtNum(r.pure_hedge_contracts)}</span> <span className="small muted">pure insurance — offsets your loss</span></div>
-              <div>
-                <span className="num">{r.speculative_contracts >= 0 ? '+' : '−'}{fmtNum(Math.abs(r.speculative_contracts))}</span>{' '}
-                <span className="small muted">
-                  {r.speculative_contracts >= 0 ? 'added by your view of the odds' : 'trimmed because the cover is priced above fair or your view disagrees'}
-                </span>
-              </div>
+              {/* Insurance = best position if the market's odds are right.
+                  View = what your own odds add or remove; for anyone with income
+                  at risk it's capped at the size of the insurance (hedge.py
+                  MAX_VIEW_TILT). The contract-for-every-dollar size is shown
+                  for reference: basis risk and risk aversion move away from it. */}
+              <div><span className="num">{fmtNum(r.pure_hedge_contracts)}</span> <span className="small muted">insurance at the market’s odds</span></div>
+              {Math.abs(r.speculative_contracts) >= 0.5 && (
+                <div>
+                  <span className="num">{r.speculative_contracts >= 0 ? '+' : '−'}{fmtNum(Math.abs(r.speculative_contracts))}</span>{' '}
+                  <span className="small muted">
+                    {r.speculative_contracts >= 0 ? 'added by your view of the odds' : 'removed by your view of the odds'}
+                    {r.view_tilt_capped ? ' (limited to the size of the insurance)' : ''}
+                  </span>
+                </div>
+              )}
+              {r.variance_min_contracts > 0 && (
+                <div className="tiny muted">For reference: one contract per dollar at risk, scaled by how closely the market tracks you, would be {fmtNum(r.variance_min_contracts)}.</div>
+              )}
             </div>
           </div>
         )}

@@ -33,6 +33,13 @@ What it does
    the persona's realized loss across the history, against the
    ``segments.py`` assumption.
 
+The sizing runs against one or more revisions of the model (``--models``,
+default: commit 5a157de and the working tree), each fed three ways
+(``VARIANTS``: as the Hedge page wires it, buy-only, and the segments.py
+no-tilt convention). Results: markdown on stdout, plus
+``data/calibration_summary.csv``, ``data/backtest_summary.csv`` and
+``data/backtest_periods.csv.gz``. Write-up: ``findings/02_history.md``.
+
 Look-ahead: the persona's budget, strike choice and model loss use only
 values settled *before* the entry date and prices on the entry date.
 The *measured* basis and the loss model parameters of the contract worker
@@ -61,18 +68,78 @@ from scipy.optimize import minimize
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from hone.prediction.hedge import (  # noqa: E402
-    IncomeExposure,
-    crra_inverse,
-    crra_utility,
-    hedge_income,
-)
-from hone.prediction.contracts import implied_probability  # noqa: E402
-from hone.prediction.liquidity import Liquidity  # noqa: E402
+
+# ---------------------------------------------------------------- models
+# hone/prediction/hedge.py is under active development. The backtest runs
+# against named revisions so results are reproducible: a git revision is
+# loaded from git into a private package (contracts.py, liquidity.py,
+# hedge.py of that revision, nothing else), and "worktree" imports the
+# files as they are on disk now (labelled with their content hash).
+DEFAULT_MODELS = ["5a157de", "worktree"]
+_TMP_DIRS: list = []
+
+
+@dataclass
+class Model:
+    label: str
+    IncomeExposure: Any
+    hedge_income: Callable
+    Liquidity: Any
+    implied_probability: Callable
+    oi_share: float
+    fields: set
+
+
+def load_model(rev: str) -> Model:
+    import dataclasses
+    import hashlib
+    import importlib
+    import subprocess
+    import tempfile
+
+    files = ["contracts.py", "liquidity.py", "hedge.py"]
+    if rev == "worktree":
+        src = {f: (ROOT / "hone" / "prediction" / f).read_text(encoding="utf-8") for f in files}
+        digest = hashlib.sha256("".join(src[f] for f in files).encode()).hexdigest()[:10]
+        label = f"worktree@{digest}"
+    else:
+        src = {f: subprocess.check_output(["git", "-C", str(ROOT), "show", f"{rev}:hone/prediction/{f}"],
+                                          text=True) for f in files}
+        label = rev
+    tmp = tempfile.TemporaryDirectory(prefix="hone_model_")
+    _TMP_DIRS.append(tmp)
+    pkg = "_hone_model_" + re.sub(r"\W", "_", label)
+    d = Path(tmp.name) / pkg
+    d.mkdir()
+    (d / "__init__.py").write_text("")
+    for f in files:
+        (d / f).write_text(src[f], encoding="utf-8")
+    sys.path.insert(0, tmp.name)
+    hedge = importlib.import_module(f"{pkg}.hedge")
+    liq = importlib.import_module(f"{pkg}.liquidity")
+    con = importlib.import_module(f"{pkg}.contracts")
+    return Model(label, hedge.IncomeExposure, hedge.hedge_income, liq.Liquidity,
+                 con.implied_probability, float(liq.DEFAULT_MAX_SHARE_OF_OI),
+                 {f.name for f in dataclasses.fields(hedge.IncomeExposure)})
+
+
+def crra_ce(w: np.ndarray, p: np.ndarray, gamma: float) -> float:
+    """CRRA certainty equivalent, log-sum-exp form (no overflow at high gamma)."""
+    if np.any(w <= 0):
+        return float("nan")  # ruin in some state
+    lw = np.log(w)
+    if abs(gamma - 1) < 1e-9:
+        return float(math.exp(np.sum(p * lw)))
+    a = (1 - gamma) * lw + np.log(np.maximum(p, 1e-300))
+    m = float(a.max())
+    return float(math.exp((m + math.log(np.sum(np.exp(a - m)))) / (1 - gamma)))
+
 
 BASE = "https://api.elections.kalshi.com/trade-api/v2"
 DATA_DIR = Path(__file__).parent / "data" / "kalshi_history"
-RESULTS_CSV = Path(__file__).parent / "data" / "backtest_periods.csv"
+RESULTS_CSV = Path(__file__).parent / "data" / "backtest_periods.csv.gz"
+SUMMARY_CSV = Path(__file__).parent / "data" / "backtest_summary.csv"
+CALIB_CSV = Path(__file__).parent / "data" / "calibration_summary.csv"
 
 #: Series analysed. All are "greater" ladders: YES pays if value > strike.
 SERIES = ["KXAAAGASM", "KXCPIYOY", "KXU3", "KXU3MAX", "KXPAYROLLS", "KXFED", "KX30YMORTW"]
@@ -295,7 +362,9 @@ def market_table(data: dict[str, dict]) -> tuple[pd.DataFrame, dict[str, np.ndar
             ).reshape(-1, 6)
             rows.append({
                 "series": series, "ticker": m["ticker"], "event": m["event_ticker"],
-                "strike_type": m.get("strike_type"), "strike": _f(m.get("floor_strike")),
+                "strike_type": m.get("strike_type"),
+                # strikes are stored with float noise (4.1 arrives as 4.099999)
+                "strike": None if _f(m.get("floor_strike")) is None else round(_f(m.get("floor_strike")), 4),
                 "cap": _f(m.get("cap_strike")), "open_ts": _ts(m.get("open_time")),
                 "close_ts": _ts(m.get("close_time")),
                 "settle_ts": _ts(m.get("settlement_ts")) or _ts(m.get("close_time")),
@@ -329,6 +398,8 @@ def _fix_values(df: pd.DataFrame) -> pd.DataFrame:
                 v = lo + 0.5 * _step(gr.strike)
             elif pd.notna(hi):
                 v = hi if g.series.iloc[0] in GRID_SERIES else hi - 0.5 * _step(gr.strike)
+            if v is not None and g.series.iloc[0] in GRID_SERIES:
+                v = round(float(v), 2)  # strikes are stored as e.g. 4.0999999
             g["value_inferred"] = True
         else:
             g["value_inferred"] = False
@@ -382,7 +453,8 @@ def calibration_rows(df: pd.DataFrame, candles: dict, h: int) -> pd.DataFrame:
         if q is None:
             continue
         rows.append({"series": r.series, "event": r.event, "ticker": r.ticker,
-                     "p": q["p"], "src": q["src"], "y": r.y, "h": h})
+                     "p": q["p"], "src": q["src"], "y": r.y, "h": h,
+                     "bid": q["bid"], "ask": q["ask"]})
     return pd.DataFrame(rows)
 
 
@@ -470,6 +542,7 @@ class Persona:
     fixed_loss: float | None = None
     hazard: Callable[[float, float], float] | None = None
     note: str = ""
+    horizons: tuple = (7, 28)
 
 
 def contractor_hazard(u: float, budget: float, p0: float = 0.03, kappa: float = 1.0) -> float:
@@ -497,6 +570,18 @@ PERSONAS = [
     Persona("realtor", "Real-estate agent, $80k/yr commission", "KXFED",
             wealth=100_000, basis_assumed=0.50, dollars_per_unit=16_000,
             note="W = year's commission x 1.25; loss = 20% of commission per +1pp in the Fed upper bound vs. budget"),
+    # The weekly mortgage-rate market segments.py names for agents. Weekly
+    # contracts list about a week before they settle, so only a short
+    # horizon exists, and only ~11 weeks have settled (Sep-Nov 2026).
+    Persona("realtor_mortgage", "Agent, hedged on the weekly 30y mortgage rate", "KX30YMORTW",
+            wealth=100_000, basis_assumed=0.50, dollars_per_unit=16_000,
+            note="same sensitivity as the Fed version: 20% of commission per +1pp vs. last week's print",
+            horizons=(3,)),
+    # Ten times the driver's exposure (a small delivery fleet): big enough
+    # that the model actually buys, so the mechanics can be checked.
+    Persona("fleet", "Small delivery fleet, 10,000 gal/month", "KXAAAGASM",
+            wealth=60_000, basis_assumed=0.85, dollars_per_unit=10_000,
+            note="W = $60,000; loss = 10,000 gal x (gas - budget)+"),
     # Thin-cushion versions: the same exposure with 40% of the wealth, to
     # show where hedging starts to pay for its fees. (The contract worker is
     # already thin: the loss is 75% of W.)
@@ -525,16 +610,31 @@ def _ladder(df_ev: pd.DataFrame, candles: dict, ts: float) -> pd.DataFrame:
     return lad
 
 
+TAIL_FLOOR = 0.02
+
+
 def conditional_overrun(lad: pd.DataFrame, k: float, step: float) -> float:
     """Market-implied E[X - k | X > k] from the ladder's survival curve.
 
     Trapezoid over listed strikes above k; beyond the last strike the
     survival falls linearly to zero over one more step."""
     above = lad[lad.strike >= k]
-    if not len(above) or above.S.iloc[0] <= 0:
+    if not len(above) or above.S.iloc[0] <= TAIL_FLOOR:
         return step
-    ks = list(above.strike) + [above.strike.iloc[-1] + step]
-    ss = list(above.S) + [0.0]
+    # Far strikes sit at the 1-2c tick floor whatever their true odds; read
+    # the first strike at or under the floor as "survival ~ 0" and stop there,
+    # otherwise a flat 1c tail adds phantom expected overrun.
+    ks, ss = [], []
+    for kk, sv in zip(above.strike, above.S):
+        if sv <= TAIL_FLOOR:
+            ks.append(kk)
+            ss.append(0.0)
+            break
+        ks.append(kk)
+        ss.append(sv)
+    else:
+        ks.append(ks[-1] + step)
+        ss.append(0.0)
     area = sum((ks[i + 1] - ks[i]) * (ss[i] + ss[i + 1]) / 2 for i in range(len(ks) - 1))
     return float(max(area / above.S.iloc[0], 0.25 * step))
 
@@ -546,7 +646,7 @@ def last_settled_value(df: pd.DataFrame, series: str, before_ts: float) -> float
     return float(ev.value.iloc[-1]) if len(ev) else None
 
 
-def backtest_persona(per: Persona, df: pd.DataFrame, candles: dict, h: int) -> pd.DataFrame:
+def backtest_persona(per: Persona, df: pd.DataFrame, candles: dict, h: int, model: Model) -> pd.DataFrame:
     """One row per (event, gamma, cap) for this persona at horizon h."""
     rows = []
     sdf = df[df.series == per.series]
@@ -564,14 +664,14 @@ def backtest_persona(per: Persona, df: pd.DataFrame, candles: dict, h: int) -> p
         cand = lad[lad.strike >= budget - 1e-9]
         if not len(cand):
             continue
-        leg = cand.iloc[0]  # the cheapest-to-define "ends above budget" contract
-        k, mid, pays = float(leg.strike), float(leg.p), int(leg.y)
+        leg = cand.iloc[0]  # the nearest "ends above budget" strike quoted that day
+        k, pays = float(leg.strike), int(leg.y)
         ask = leg.ask if leg.ask is not None and np.isfinite(leg.ask) else None
         bid = leg.bid if leg.bid is not None and np.isfinite(leg.bid) else None
         if ask is None:  # nothing on offer to buy: no hedge was possible this period
             continue
         price = float(ask)
-        app_prob = implied_probability(bid, ask, leg["last"])
+        app_prob = model.implied_probability(bid, ask, leg["last"])
         if app_prob is None or not (0.01 <= app_prob <= 0.99) or not (0.01 <= price <= 0.99):
             continue
         if per.fixed_loss is not None:
@@ -588,15 +688,25 @@ def backtest_persona(per: Persona, df: pd.DataFrame, candles: dict, h: int) -> p
         loss_model = min(loss_model, 0.9 * per.wealth)
         oi = leg.oi
         sell_px = bid if bid is not None and bid > 0 else None
-        for variant in VARIANTS:
+        variants = list(VARIANTS)
+        if per.fixed_loss is not None and "loss_prob" in model.fields:
+            variants.append("app+loss_prob")
+        for variant in variants:
             mprob = price if variant == "no_tilt" else app_prob
+            extra: dict[str, Any] = {}
+            if variant == "buy_only":
+                extra["allow_selling"] = False
+            if variant == "app+loss_prob":
+                # the person's own ex-ante chance of the loss (the hazard at
+                # an unchanged rate), which v2 accepts separately
+                extra["loss_prob"] = per.hazard(budget, budget)
             for gamma in GAMMAS:
                 for capped in (False, True):
-                    liq = Liquidity(open_interest=oi if oi is not None else 0.0) if capped else None
-                    plan = hedge_income(IncomeExposure(
+                    liq = model.Liquidity(open_interest=oi if oi is not None else 0.0) if capped else None
+                    plan = model.hedge_income(model.IncomeExposure(
                         wealth=per.wealth, loss=loss_model, price=price, gamma=gamma,
                         market_prob=mprob, basis_correlation=per.basis_assumed, liquidity=liq,
-                        allow_selling=(variant == "app")))
+                        **extra))
                     n = plan.contracts
                     fee = plan.fee
                     if n >= 0:
@@ -608,11 +718,11 @@ def backtest_persona(per: Persona, df: pd.DataFrame, candles: dict, h: int) -> p
                     # what the position would have made at the fill the model assumed
                     pnl_model_fill = n * (pays - price) - fee
                     rows.append({
-                        "persona": per.key, "series": per.series, "event": event, "h": h,
-                        "variant": variant, "gamma": gamma, "capped": capped, "entry_ts": entry,
+                        "model": model.label, "persona": per.key, "series": per.series,
+                        "event": event, "h": h, "variant": variant, "gamma": gamma, "capped": capped, "entry_ts": entry,
                         "budget": budget, "strike": k, "realized": x, "mid": app_prob,
                         "bid": bid, "price": price, "oi": oi, "pays": pays,
-                        "loss_model": loss_model, "p_loss": p_loss,
+                        "loss_model": loss_model, "p_loss": p_loss, "basis_assumed": per.basis_assumed,
                         "loss_realized": realized_loss_mean, "loss_draws": loss_draws,
                         "contracts_wanted": plan.contracts_wanted, "contracts": n,
                         "cost": plan.cost, "fee": fee, "pnl": pnl, "pnl_model_fill": pnl_model_fill,
@@ -635,16 +745,33 @@ def history_ce(bt: pd.DataFrame, wealth: float, gamma: float) -> dict:
             ws_hd.append(wealth - loss + r.pnl)
             pr.append(prob / t)
     ws_un, ws_hd, pr = map(np.array, (ws_un, ws_hd, pr))
-    def ce(w):
-        if np.any(w <= 0):  # ruin in some period: CRRA utility is minus infinity
-            return float("nan")
-        return crra_inverse(float(np.sum(pr * crra_utility(w, gamma))), gamma)
+    ce = lambda w: crra_ce(w, pr, gamma)
     m = lambda w: float(np.sum(pr * w))
     sd = lambda w: float(np.sqrt(np.sum(pr * (w - m(w)) ** 2)))
     return {"ce_unhedged": ce(ws_un), "ce_hedged": ce(ws_hd), "ce_gain": ce(ws_hd) - ce(ws_un),
             "mean_unhedged": m(ws_un), "mean_hedged": m(ws_hd),
             "sd_unhedged": sd(ws_un), "sd_hedged": sd(ws_hd),
             "worst_unhedged": float(ws_un.min()), "worst_hedged": float(ws_hd.min())}
+
+
+def hazard_basis_grid(bt: pd.DataFrame) -> pd.DataFrame:
+    """corr(contract pays, job loss) for other hazard assumptions.
+
+    The contract worker's loss is Bernoulli(p0 * exp(kappa * du)); the
+    measured basis depends on how strongly the hazard reacts to the
+    unemployment surprise du, which no market can tell us."""
+    b = bt.pays.to_numpy(float)
+    du = (bt.realized - bt.budget).to_numpy(float)
+    rows = []
+    for p0 in (0.01, 0.03, 0.10):
+        row = {"p0 (monthly)": p0}
+        for kappa in (1, 3, 10, 30):
+            p = np.clip(p0 * np.exp(kappa * du), 0, 1)
+            cov = np.mean(b * p) - b.mean() * p.mean()
+            sd = math.sqrt(b.var() * p.mean() * (1 - p.mean()))
+            row[f"kappa={kappa}"] = cov / sd if sd > 0 else np.nan
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def measured_basis(bt: pd.DataFrame) -> dict:
@@ -670,7 +797,8 @@ def measured_basis(bt: pd.DataFrame) -> dict:
     else:
         beta = np.cov(b, bt.loss_realized, bias=True)[0, 1] / b.var() if b.var() > 0 else np.nan
     return {"rho_payoff_loss": rho, "rho_payoff_lossevent": ind,
-            "min_var_contracts": float(beta), "mean_model_pure_hedge": float(bt.loss_model.mean())}
+            "min_var_contracts": float(beta),
+            "model_pure_hedge": float(bt.basis_assumed.iloc[0] * bt.loss_model.mean())}
 
 
 # ================================================================== report
@@ -695,6 +823,9 @@ def main() -> int:
     ap.add_argument("--refresh", action="store_true", help="re-download everything")
     ap.add_argument("--fetch-only", action="store_true")
     ap.add_argument("--boot", type=int, default=400, help="bootstrap resamples")
+    ap.add_argument("--models", nargs="+", default=DEFAULT_MODELS,
+                    help="hedge-model revisions to test: git revs and/or 'worktree'")
+    ap.add_argument("--skip-calibration", action="store_true")
     args = ap.parse_args()
     data = load_all(args.offline, args.refresh)
     if args.fetch_only:
@@ -712,6 +843,13 @@ def main() -> int:
     print(fmt(inv))
 
     # ---------------------------------------------------- calibration
+    if not args.skip_calibration:
+        calibration_report(df, candles, args.boot)
+    hedge_report(args, df, candles)
+    return 0
+
+
+def calibration_report(df: pd.DataFrame, candles: dict, boot: int) -> None:
     print("\n# Calibration\n")
     cal_all = {h: calibration_rows(df, candles, h) for h in HORIZONS}
     summ = []
@@ -721,7 +859,7 @@ def main() -> int:
                      + list(cal.groupby("series"))):
             if len(g) < 20:
                 continue
-            r = calib_summary(g, boot=args.boot if s.startswith("ALL") else max(args.boot // 2, 100))
+            r = calib_summary(g, boot=boot if s.startswith("ALL") else max(boot // 2, 100))
             summ.append({"h": h, "series": s, "n": r["n"], "events": r["events"],
                          "brier": r["brier"], "brier_lo": r["brier_ci"][0], "brier_hi": r["brier_ci"][1],
                          "brier_clim": r["brier_clim"], "skill": 1 - r["brier"] / r["brier_clim"],
@@ -732,9 +870,35 @@ def main() -> int:
                          "brier_5_95": r["brier_contested"], "share_last_px": r["share_last"]})
     summ = pd.DataFrame(summ)
     print(fmt(summ))
+    CALIB_CSV.parent.mkdir(parents=True, exist_ok=True)
+    summ.to_csv(CALIB_CSV, index=False, float_format="%.4f")
+    print("\n## What buying at the quote returned (per $1 contract, before fees)\n")
+    print("YES bought at the ask pays y - ask; NO bought at 1 - bid pays bid - y. "
+          "Negative = the buyer paid a premium. Contested quotes (ask <= 0.97, bid >= 0.03) only; "
+          "95% CI from an event-level bootstrap.\n")
+    rows = []
+    for h in (7, 28):
+        cal = cal_all[h].dropna(subset=["bid", "ask"])
+        cal = cal[(cal.ask <= 0.97) & (cal.bid >= 0.03)]
+        for s, g in [("ALL", cal)] + list(cal.groupby("series")):
+            if len(g) < 15:
+                continue
+            yes = lambda d: float(np.mean(d.y - d.ask))
+            no = lambda d: float(np.mean(d.bid - d.y))
+            mid = lambda d: float(np.mean(d.y - (d.bid + d.ask) / 2))
+            bs = cluster_boot(g, lambda d: [yes(d), no(d), mid(d)], n=max(boot // 2, 100))
+            rows.append({"h": h, "series": s, "n": len(g), "events": g.event.nunique(),
+                         "mean_spread": float(np.mean(g.ask - g.bid)),
+                         "yes_at_ask": yes(g), "yes_lo": np.percentile(bs[:, 0], 2.5),
+                         "yes_hi": np.percentile(bs[:, 0], 97.5),
+                         "no_at_bid": no(g), "no_lo": np.percentile(bs[:, 1], 2.5),
+                         "no_hi": np.percentile(bs[:, 1], 97.5),
+                         "y_minus_mid": mid(g), "mid_lo": np.percentile(bs[:, 2], 2.5),
+                         "mid_hi": np.percentile(bs[:, 2], 97.5)})
+    print(fmt(pd.DataFrame(rows)))
     for h in (7, 28):
         print(f"\n## Reliability, h = {h} days, all series pooled\n")
-        print(fmt(reliability(cal_all[h], boot=args.boot)))
+        print(fmt(reliability(cal_all[h], boot=boot)))
     print("\n## Reliability, h = 7, contested markets only, by series (5-95c)\n")
     for s, g in cal_all[7].groupby("series"):
         g = g[(g.p >= 0.05) & (g.p <= 0.95)]
@@ -744,55 +908,81 @@ def main() -> int:
         print(fmt(reliability(g, boot=200)))
 
     # ---------------------------------------------------- hedges
+
+
+def hedge_report(args: argparse.Namespace, df: pd.DataFrame, candles: dict) -> None:
     print("\n# Hedge backtest\n")
+    models = []
+    for rev in args.models:
+        try:
+            models.append(load_model(rev))
+        except Exception as exc:  # e.g. a working tree caught mid-edit
+            print(f"model {rev}: could not be loaded ({exc!r}); skipped")
+    for m in models:
+        print(f"- model `{m.label}`: open-interest cap {m.oi_share:.0%}; "
+              f"loss_prob supported: {'loss_prob' in m.fields}")
     allbt = []
     summary_rows, basis_rows = [], []
-    for per in PERSONAS:
-        for h in (7, 28):
-            bt = backtest_persona(per, df, candles, h)
-            if not len(bt):
-                print(f"{per.key} h={h}: no periods")
-                continue
-            allbt.append(bt)
-            one = bt[(bt.gamma == GAMMAS[0]) & (~bt.capped) & (bt.variant == "no_tilt")]
-            basis_rows.append({"persona": per.key, "h": h, "periods": len(one),
-                               "assumed": per.basis_assumed, **measured_basis(one)})
-            for (variant, gamma, capped), g in bt.groupby(["variant", "gamma", "capped"]):
-                ce = history_ce(g, per.wealth, gamma)
-                lossy = g[g.loss_realized > 0]
-                w = g.p_loss.to_numpy()
-                paid_when_loss = (float(np.sum(w * g.pays) / np.sum(w)) if per.fixed_loss is not None
-                                  else float(lossy.pays.mean()) if len(lossy) else np.nan)
-                held = g[g.contracts > 0]
-                summary_rows.append({
-                    "persona": per.key, "h": h, "variant": variant, "gamma": gamma,
-                    "cap": "OI 10%" if capped else "none",
-                    "periods": len(g), "hedged": int((g.contracts > 0).sum()),
-                    "sold": int((g.contracts < 0).sum()),
-                    "med_contracts": float(held.contracts.median()) if len(held) else 0.0,
-                    "coverage": float((g.contracts / g.contracts_wanted.replace(0, np.nan)).median()),
-                    "loss_periods": float(g.p_loss.sum()),
-                    "P(pay|loss)": paid_when_loss,
-                    "P(pay|big loss)": (float(lossy[lossy.loss_realized >= lossy.loss_realized.median()].pays.mean())
-                                        if per.fixed_loss is None and len(lossy) else np.nan),
-                    "P(pay|no loss)": float(np.sum((1 - w) * g.pays) / np.sum(1 - w)) if np.sum(1 - w) > 0 else np.nan,
-                    "total_loss": float(g.loss_realized.sum()),
-                    "total_cost": float(g.cost.sum()),
-                    "net_pnl": float(g.pnl.sum()),
-                    "pnl_at_model_fill": float(g.pnl_model_fill.sum()),
-                    "exp_premium": float(g.exp_premium.sum()),
-                    "loss_offset": float(g.pnl.sum() / g.loss_realized.sum()) if g.loss_realized.sum() > 0 else np.nan,
-                    **ce,
-                    "ce_gain_pct_w": ce["ce_gain"] / per.wealth * 100,
-                })
+    for model in models:
+        for per in PERSONAS:
+            for h in per.horizons:
+                bt = backtest_persona(per, df, candles, h, model)
+                if not len(bt):
+                    print(f"{per.key} h={h}: no periods")
+                    continue
+                allbt.append(bt)
+                if model is models[0]:
+                    one = bt[(bt.gamma == GAMMAS[0]) & (~bt.capped) & (bt.variant == "no_tilt")]
+                    basis_rows.append({"persona": per.key, "h": h, "periods": len(one),
+                                       "assumed": per.basis_assumed, **measured_basis(one)})
+                for (variant, gamma, capped), g in bt.groupby(["variant", "gamma", "capped"]):
+                    ce = history_ce(g, per.wealth, gamma)
+                    lossy = g[g.loss_realized > 0]
+                    w = g.p_loss.to_numpy()
+                    paid_when_loss = (float(np.sum(w * g.pays) / np.sum(w)) if per.fixed_loss is not None
+                                      else float(lossy.pays.mean()) if len(lossy) else np.nan)
+                    held = g[g.contracts > 0]
+                    summary_rows.append({
+                        "model": model.label, "persona": per.key, "h": h, "variant": variant,
+                        "gamma": gamma, "cap": f"OI {model.oi_share:.0%}" if capped else "none",
+                        "periods": len(g), "hedged": int((g.contracts > 0).sum()),
+                        "sold": int((g.contracts < 0).sum()),
+                        "med_contracts": float(held.contracts.median()) if len(held) else 0.0,
+                        "coverage": float((g.contracts / g.contracts_wanted.replace(0, np.nan)).median()),
+                        "loss_periods": float(g.p_loss.sum()),
+                        "pay_if_loss": paid_when_loss,
+                        "pay_if_big_loss": (float(lossy[lossy.loss_realized >= lossy.loss_realized.median()].pays.mean())
+                                            if per.fixed_loss is None and len(lossy) else np.nan),
+                        "pay_if_no_loss": float(np.sum((1 - w) * g.pays) / np.sum(1 - w)) if np.sum(1 - w) > 0 else np.nan,
+                        "total_loss": float(g.loss_realized.sum()),
+                        "total_cost": float(g.cost.sum()),
+                        "net_pnl": float(g.pnl.sum()),
+                        "pnl_at_model_fill": float(g.pnl_model_fill.sum()),
+                        "exp_premium": float(g.exp_premium.sum()),
+                        **ce,
+                        "ce_gain_pct_w": ce["ce_gain"] / per.wealth * 100,
+                    })
     summary = pd.DataFrame(summary_rows)
-    keep = ["persona", "h", "variant", "gamma", "cap", "periods", "hedged", "sold", "med_contracts", "coverage",
-            "loss_periods", "P(pay|loss)", "P(pay|big loss)", "P(pay|no loss)", "total_loss", "total_cost", "net_pnl",
+    keep = ["model", "persona", "h", "variant", "gamma", "cap", "periods", "hedged", "sold", "med_contracts", "coverage",
+            "loss_periods", "pay_if_loss", "pay_if_big_loss", "pay_if_no_loss", "total_loss", "total_cost", "net_pnl",
             "pnl_at_model_fill", "exp_premium", "ce_unhedged", "ce_hedged", "ce_gain", "ce_gain_pct_w",
             "sd_unhedged", "sd_hedged", "worst_unhedged", "worst_hedged"]
     print(fmt(summary[keep], "{:,.2f}"))
+    SUMMARY_CSV.parent.mkdir(parents=True, exist_ok=True)
+    summary.to_csv(SUMMARY_CSV, index=False, float_format="%.4f")
     print("\n# Basis: measured vs assumed\n")
     print(fmt(pd.DataFrame(basis_rows), "{:,.3f}"))
+    if allbt:
+        c = pd.concat(allbt)
+        c = c[(c.persona == "contractor") & (c.h == 7) & (c.gamma == GAMMAS[0]) & (~c.capped)
+              & (c.variant == "no_tilt") & (c.model == models[0].label)]
+        if len(c):
+            print("\n## Contract worker: measured basis under other hazard assumptions (h = 7)\n")
+            print(fmt(hazard_basis_grid(c), "{:,.3f}"))
+            du = (c.realized - c.budget)
+            print(f"\nunemployment surprise vs last print over {len(c)} months: mean {du.mean():+.3f}pp, "
+                  f"sd {du.std():.3f}pp, range {du.min():+.2f} to {du.max():+.2f}pp; "
+                  f"P(pays) = {c.pays.mean():.2f}")
 
     if allbt:
         out = pd.concat(allbt, ignore_index=True).drop(columns=["loss_draws"])
@@ -801,16 +991,17 @@ def main() -> int:
         out.to_csv(RESULTS_CSV, index=False, float_format="%.4f")
         print(f"\nper-period rows: {RESULTS_CSV.relative_to(ROOT)}")
         # per-period detail for the gamma = 4 uncapped case at h = 7
-        det = out[(out.gamma == 4.0) & (~out.capped) & (out.h == 7) & (out.variant == "app")]
-        print("\n# Period detail (app wiring, gamma 4, uncapped, h = 7)\n")
-        for per in PERSONAS:
-            d = det[det.persona == per.key][["entry_date", "budget", "strike", "realized", "mid", "price",
+        det = out[(out.gamma == 4.0) & (~out.capped) & (out.variant == "no_tilt")
+                  & (out.model == models[0].label)]
+        print(f"\n# Period detail (model {models[0].label}, no_tilt, gamma 4, uncapped)\n")
+        for (pk, h), d in det.groupby(["persona", "h"]):
+            if pk.endswith("_thin"):
+                continue
+            d = d[["entry_date", "budget", "strike", "realized", "mid", "price",
                                              "oi", "pays", "loss_model", "loss_realized", "p_loss",
                                              "contracts_wanted", "contracts", "cost", "pnl"]]
-            if len(d):
-                print(f"\n## {per.key}\n")
-                print(fmt(d, "{:,.3f}"))
-    return 0
+            print(f"\n## {pk}, h = {h}\n")
+            print(fmt(d, "{:,.3f}"))
 
 
 if __name__ == "__main__":

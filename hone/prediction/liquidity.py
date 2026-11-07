@@ -36,8 +36,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-#: Never propose more than this share of a market's open interest.
-DEFAULT_MAX_SHARE_OF_OI = 0.10
+#: Never propose more than this share of a market's open interest. 25%, not
+#: 10%: the segment sweep found 10% gave up most of the value for every
+#: thin-market occupation, while deep markets were unaffected either way.
+DEFAULT_MAX_SHARE_OF_OI = 0.25
 #: Only count contracts offered within this many dollars of the best price.
 DEFAULT_MAX_SLIPPAGE = 0.03
 

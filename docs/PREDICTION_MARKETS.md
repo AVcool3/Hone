@@ -1,4 +1,6 @@
 # Hone Markets — hedging cyclical income with event contracts
+> **The current model, every rule and the evidence for it: [HEDGE_MODEL.md](HEDGE_MODEL.md).**
+
 
 The stocks and crypto products answer one question: *given how much risk you
 can carry, how much of this risky asset should you hold?* This product

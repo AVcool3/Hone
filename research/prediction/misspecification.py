@@ -16,6 +16,12 @@ Run from the repo root:
     python research/prediction/misspecification.py             # full run, markdown tables
     python research/prediction/misspecification.py --draws 10  # faster
     python research/prediction/misspecification.py --out DIR   # also write per-case CSVs
+    python research/prediction/misspecification.py --model worktree  # test the working-tree hedge.py
+
+By default the model under test is ``hone/prediction/hedge.py`` as committed
+at git HEAD (loaded with ``git show``), so results are reproducible while the
+working tree changes; if the working tree differs, it is also scored as the
+``worktree_v2*`` candidates. Findings: ``findings/05_misspecification.md``.
 
 All numbers are certainty-equivalent (CE) dollars at the persona's own
 gamma, exact expectations over the four joint states (no sampling noise
@@ -43,9 +49,51 @@ for _p in (str(ROOT), str(HERE)):
         sys.path.insert(0, _p)
 
 import segments as S  # noqa: E402
-from hone.prediction import hedge as H  # noqa: E402
+from hone.prediction import hedge as HW  # noqa: E402  (working tree)
 from hone.prediction.contracts import kalshi_fee  # noqa: E402
 from hone.prediction.liquidity import average_fill, limit_for  # noqa: E402
+
+def load_head_hedge():
+    """``hone/prediction/hedge.py`` as committed at git HEAD, loaded as its own
+    module (relative imports resolve to the working-tree package). Returns
+    None if git is unavailable."""
+    import subprocess
+    import types
+    try:
+        src = subprocess.run(["git", "-C", str(ROOT), "show", "HEAD:hone/prediction/hedge.py"],
+                             capture_output=True, text=True, check=True).stdout
+    except Exception:
+        return None
+    name = "hone.prediction._hedge_at_head"
+    mod = types.ModuleType(name)
+    mod.__package__ = "hone.prediction"
+    mod.__file__ = str(ROOT / "hone/prediction/hedge.py") + "@HEAD"
+    sys.modules[name] = mod
+    exec(compile(src, mod.__file__, "exec"), mod.__dict__)
+    mod._SAME_AS_WORKTREE = src == (ROOT / "hone/prediction/hedge.py").read_text()
+    return mod
+
+
+#: The model under test (set in main): the committed hedge.py ("head",
+#: default, reproducible) or whatever is in the working tree ("worktree").
+H = HW
+MODEL = "worktree"
+#: open-interest share the committed liquidity module used (the working
+#: tree may have changed DEFAULT_MAX_SHARE_OF_OI)
+HEAD_MAX_SHARE_OF_OI = 0.10
+
+
+def pin(exp):
+    """Make an exposure behave as it did at HEAD: selling allowed by default
+    (``allow_selling`` was a bool defaulting to True) and the 10% OI cap."""
+    if MODEL != "head":
+        return exp
+    if getattr(exp, "allow_selling", True) is None:
+        exp = replace(exp, allow_selling=True)
+    if exp.liquidity is not None and exp.liquidity.max_share_of_open_interest != HEAD_MAX_SHARE_OF_OI:
+        exp = replace(exp, liquidity=replace(exp.liquidity, max_share_of_open_interest=HEAD_MAX_SHARE_OF_OI))
+    return exp
+
 
 TOL = 0.005  # dollars; a realized CE gain below -TOL counts as "the hedge hurt"
 Q_MAX = 0.95  # ceiling on any true probability we construct
@@ -275,7 +323,7 @@ def base_personas(belief="market"):
 
 def _case(p, assumption, level, truth, exp=None, slip=0.0, q_loss_est=None, rng=None, **extra):
     occ = p["occupation"]
-    exp = exp or S.exposure_for(p)
+    exp = pin(exp or S.exposure_for(p))
     if q_loss_est is None:
         # what a user would type for "how likely is a bad season for YOU":
         # the true value, mis-estimated by ~35% (lognormal)
@@ -554,14 +602,24 @@ def main():
     ap.add_argument("--draws", type=int, default=30, help="random users/worlds per persona (A3, joint)")
     ap.add_argument("--out", help="directory for per-case CSVs")
     ap.add_argument("--skip-candidates", action="store_true")
+    ap.add_argument("--model", choices=["head", "worktree"], default="head",
+                    help="hedge.py to stress-test: as committed at git HEAD (default) or the working tree")
     args = ap.parse_args()
+    global H, MODEL
+    if args.model == "head":
+        head = load_head_hedge()
+        if head is not None:
+            H, MODEL = head, "head"
+    print(f"Model under test: hedge.py @ {MODEL}"
+          + (" (working tree differs from HEAD; it is also scored as candidate 'worktree_v2*')"
+             if MODEL == "head" and not H._SAME_AS_WORKTREE else ""), file=sys.stderr)
     pd.set_option("display.width", 200)
     t0 = time.time()
     rng = np.random.default_rng(20261107)
 
-    # sanity: finalize() reproduces hedge_income on every persona
-    for p in S.personas():
-        exp = S.exposure_for(p)
+    # sanity: finalize() reproduces HEAD's hedge_income on every persona
+    for p in (S.personas() if MODEL == "head" else []):
+        exp = pin(S.exposure_for(p))
         plan = H.hedge_income(exp)
         b = model_belief(exp)
         st, _ = H.joint_states(b, b, exp.basis_correlation)
@@ -641,6 +699,8 @@ def main():
 
     # ------------------------------------------------------- candidates
     cands = candidates()
+    if MODEL == "head" and not H._SAME_AS_WORKTREE:
+        cands += worktree_candidates()
     stress_keys = ["A1", "A2", "A3", "A4", "A5", "A6"]
     uncapped = {k: [c for c in v if c["liquidity"] == "uncapped"] for k, v in scen.items()}
     # A3 is large; candidates use a deterministic subsample
@@ -686,7 +746,7 @@ def main():
     pct = lambda cols: {c: "{:.1f}" for c in cols if "%" in c}
     print("\n## Candidate model changes\n")
     print("Value kept when the model is right (uncapped, % of baseline CE gain), and harm under the "
-          "single-assumption stresses 1-6 pooled:\n")
+          "single-assumption stresses 1-6 (mean over the six assumptions):\n")
     a = comp[["right: kept %", "right+views: kept %", "1-6 hurt %", "1-6 hurt >0.1% inc %",
               "1-6 E[harm] $", "1-6 CE gain $"]]
     print(md(a, fmt=pct(a.columns)))
@@ -797,9 +857,66 @@ def price_buffer_capped(delta, two_prob_states=False):
     return f
 
 
+def _v2_exp(exp):
+    """The exposure as the working-tree model would get it (auto selling).
+    The liquidity object keeps HEAD's 10% OI cap so capped results compare."""
+    return replace(exp, allow_selling=None) if hasattr(HW.IncomeExposure, "loss_prob") else exp
+
+
+def worktree_candidates():
+    """The working-tree hedge_income (uncommitted v2 at the time of writing),
+    alone and with the extra changes this study proposes on top."""
+    def v2(exp, case):
+        return HW.hedge_income(_v2_exp(exp))
+    v2.__name__ = "worktree_v2"
+
+    def v2_shrink(exp, case):
+        return HW.hedge_income(_v2_exp(replace(exp, basis_correlation=exp.basis_correlation * 0.75)))
+    v2_shrink.__name__ = "worktree_v2+shrink(0.75)"
+
+    def v2_buffer(delta, lam=0.75):
+        def f(exp, case):
+            mp = exp.market_prob if exp.market_prob is not None else exp.price
+            e = replace(exp, basis_correlation=exp.basis_correlation * lam)
+            if exp.loss > 0:
+                e = replace(e, price=float(min(exp.price + delta, 0.99)), market_prob=mp)
+                # the padded book: every ask delta dearer
+                if e.liquidity is not None and e.liquidity.asks_buy:
+                    e = replace(e, liquidity=replace(e.liquidity, asks_buy=[
+                        (min(px + delta, 0.99), q) for px, q in e.liquidity.asks_buy]))
+            plan = HW.hedge_income(_v2_exp(e))
+            k = plan.contracts
+            if k == 0:
+                return plan
+            fill = (plan.avg_fill_price or e.price) - (delta if k > 0 and exp.loss > 0 else 0.0)
+            fee = kalshi_fee(abs(k), fill if k > 0 else 1 - fill, exp.fee_multiplier, exp.fee_rate)
+            return SimpleNamespace(contracts=k, avg_fill_price=fill, fee=fee, ce_gain=plan.ce_gain)
+        f.__name__ = f"worktree_v2+shrink({lam})+price_buffer({delta})"
+        return f
+
+    def v2_lossprob(exp, case):
+        e = exp
+        if exp.loss > 0:
+            e = replace(exp, loss_prob=float(np.clip(case["q_loss_est"], 0.01, 0.95)))
+        return HW.hedge_income(_v2_exp(e))
+    v2_lossprob.__name__ = "worktree_v2+loss_prob(user)"
+
+    def v2_all(exp, case):
+        e = exp
+        if exp.loss > 0:
+            e = replace(exp, loss_prob=float(np.clip(case["q_loss_est"], 0.01, 0.95)))
+        return v2_buffer(0.01)(e, case)
+    v2_all.__name__ = "worktree_v2+shrink(0.75)+price_buffer(0.01)+loss_prob(user)"
+
+    if not hasattr(HW.IncomeExposure, "loss_prob"):
+        return [v2, v2_shrink, v2_buffer(0.01)]
+    return [v2, v2_shrink, v2_buffer(0.01), v2_lossprob, v2_all]
+
+
 LEAD = ["baseline", "cap_tilt(0.0)", "price_buffer(0.01)+cap_tilt(0)+shrink(0.75)",
         "price_buffer(0.01)+cap_tilt(0)+shrink(0.75)+min_gain(0.05%)",
-        "price_buffer(0.01)+cap_tilt(0)+two_prob+shrink(0.75)+min_gain(0.05%)", "robust_maxmin"]
+        "price_buffer(0.01)+cap_tilt(0)+two_prob+shrink(0.75)+min_gain(0.05%)", "robust_maxmin",
+        "worktree_v2", "worktree_v2+shrink(0.75)+price_buffer(0.01)"]
 
 
 if __name__ == "__main__":

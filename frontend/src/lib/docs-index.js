@@ -14,6 +14,7 @@ export const DOC_INDEX = {
   'flexible-views': { file: 'FLEXIBLE_VIEWS.md', title: 'Views that aren’t price targets', blurb: 'Entropy pooling: probability, ranking, volatility and conditional views.' },
   'tail-risk': { file: 'TAIL_RISK.md', title: 'Tail risk (CVaR)', blurb: 'Why variance is not enough, and the risk-first portfolio.' },
   'crypto-research': { file: 'CRYPTO_RESEARCH.md', title: 'Crypto: research basis & parameters', blurb: 'Where crypto strains the protocol, and every parameter that differs.' },
+  'hedge-model': { file: 'HEDGE_MODEL.md', title: 'The income-hedge model, in one page', blurb: 'Every sizing rule, the evidence behind it, who it helps, and its limits.' },
   'prediction-markets': { file: 'PREDICTION_MARKETS.md', title: 'Hedging income with event contracts', blurb: 'The theory, the sizing rule, basis risk, and the Kalshi catalog.' },
   qlora: { file: 'QLORA.md', title: 'Tuning a model on your convictions', blurb: 'Few-shot today, QLoRA later — and the arithmetic of why.' },
   roadmap: { file: 'ROADMAP.md', title: 'Roadmap', blurb: 'What comes next, ordered by leverage.' },
@@ -36,7 +37,7 @@ export const DOC_GROUPS = {
     setup: ['how-hone-works', 'brokerages', 'accounts'],
   },
   'prediction-markets': {
-    methodology: ['prediction-markets', 'risk-elicitation', 'calibration'],
+    methodology: ['hedge-model', 'prediction-markets', 'risk-elicitation', 'calibration'],
     backtests: [],
     setup: ['how-hone-works', 'accounts'],
   },

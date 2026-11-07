@@ -2140,6 +2140,8 @@ def create_app() -> FastAPI:
             confidence=confidence,
             basis_correlation=req.basis_correlation,
             fee_multiplier=req.fee_multiplier if req.include_fees else 0.0,
+            loss_prob=req.loss_prob,
+            **({} if req.safety_margins else {"basis_shrink": 1.0, "price_buffer": 0.0}),
             # What the market can actually supply, looked up server-side
             # from the ticker (catalog open interest + live order book).
             liquidity=(
@@ -2149,7 +2151,9 @@ def create_app() -> FastAPI:
         )
         try:
             plan = hedge_income(exp)
-        except ValueError as exc:
+        except (ValueError, ArithmeticError) as exc:
+            # ArithmeticError: belt and braces — numerical failures must be a
+            # clear 422, never an HTTP 500 (property-test bug B8).
             raise HTTPException(status_code=422, detail=str(exc))
         payload = plan.to_dict()
         return s.ContractHedgeResponse(

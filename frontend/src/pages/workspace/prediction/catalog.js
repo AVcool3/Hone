@@ -76,7 +76,16 @@ export const BASIS_TEXT = {
 };
 
 /** Suggested starting correlation for each basis verdict (the user can change it). */
-export const BASIS_DEFAULT = { direct: 0.9, close: 0.7, proxy: 0.5 };
+/*
+ * Default "how closely does this market track your income" by tier. Lowered
+ * after the backtest on 2,822 settled Kalshi markets
+ * (research/prediction/findings/02_history.md) measured upper bounds of
+ * 0.52-0.68 for gas vs. a driver's fuel costs and ~0.8 for CPI vs. a
+ * retiree's purchasing power. Labor-market series carry their own lower
+ * default (basis_default in kalshi_client.py): one person's job loss barely
+ * moves with the national unemployment rate (measured 0.02).
+ */
+export const BASIS_DEFAULT = { direct: 0.7, close: 0.5, proxy: 0.25 };
 
 /** "Snapshot of Kalshi markets as of Nov 3, 2026 — prices may have moved" */
 export function sourceLabel(catalog) {

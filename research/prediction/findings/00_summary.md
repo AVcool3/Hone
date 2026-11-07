@@ -11,6 +11,8 @@ and its lessons are pinned in `tests/test_hedge_scenarios.py`.
 | 03 | Segment sweep, 78,480 personas | At a 10% open-interest cap almost nobody benefited. Half of optimists were told to sell. Views were 2–8× the insurance part. 12.5% of trades were worth under $1. |
 | 04 | Property tests | 14 engine bugs, the worst shrinking full-basis hedges about 10×. All are fixed and kept as regression tests. |
 | 05 | Model-wrong stress test | Tested a capped view, no selling, basis × 0.75 and a 1¢ buffer together. People hurt fell from 43% to 10%; average harm fell from $216 to $18. |
+| 06 | Vail Resorts' filings, 22 seasons | A bad snow year costs ~10–13% of visits but only 5–8% of revenue, because 40–70% is pre-sold passes. The quote engine's sensitivities, pass discount and loss caps are now calibrated on this. |
+| 07 | Snow risk at 30 resorts | The weather grid and the mountain station agree on how winters rank (0.81) but catch only 55% of each other's bad winters; quotes now price from the station. Colorado and the Alps are losing snow significantly. |
 
 ## Effect on the same 78,480 personas
 

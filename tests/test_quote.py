@@ -35,11 +35,25 @@ def _daily_for(totals: dict[int, float]) -> pd.Series:
 class FakeWeather:
     """Answers the two Open-Meteo endpoints from in-memory data."""
 
-    def __init__(self, places: dict[str, tuple[float, float]], seasons: dict[tuple[float, float], dict[int, float]]):
+    def __init__(self, places: dict[str, tuple[float, float]], seasons: dict[tuple[float, float], dict[int, float]],
+                 stations: list[dict] | None = None, swe: dict[str, dict[int, float]] | None = None):
         self.places, self.seasons, self.calls = places, seasons, 0
+        # SNOTEL: station records and peak snow water per winter, by triplet
+        self.stations, self.swe = stations or [], swe or {}
 
     def get(self, url, params=None, timeout=None):
         self.calls += 1
+        if "awdbRestApi" in url:
+            if url.endswith("/stations"):
+                return _Resp(self.stations)
+            peaks = self.swe.get(params["stationTriplets"], {})
+            values = []
+            for year, peak in peaks.items():
+                # a winter's daily values rising to `peak` on Mar 31, Oct 1 - Jun 30
+                for d in pd.date_range(f"{year}-10-01", f"{year + 1}-06-30"):
+                    frac = min((d - pd.Timestamp(f"{year}-10-01")).days / 181, 1.0)
+                    values.append({"date": d.strftime("%Y-%m-%d"), "value": round(peak * frac, 2)})
+            return _Resp([{"stationTriplet": params["stationTriplets"], "data": [{"values": values}]}])
         if "geocoding" in url:
             hits = [
                 {"name": n, "admin1": "Colorado", "country": "United States", "latitude": la, "longitude": lo, "elevation": 2400}
@@ -71,6 +85,7 @@ def _steady(n=40, normal=200.0, bad_every=4, start=1985):
 @pytest.fixture(autouse=True)
 def _fresh_cache():
     climate._CACHE.clear()
+    climate._STATIONS = None
 
 
 @pytest.fixture
@@ -145,10 +160,11 @@ class TestQuote:
         assert q.probability.historical == pytest.approx(0.25)
         assert q.fair_price == pytest.approx(q.probability.estimate)
         assert q.loaded_price == pytest.approx(q.fair_price * 1.3)
-        # Bad seasons are 40% short; Rockies resort elasticity 0.25 -> 10% of revenue.
+        # Bad seasons are 40% short; Rockies resort elasticity 0.25, damped for
+        # the default 25% pre-sold passes: 0.25 x (1 - 0.7 x 0.25).
         assert q.avg_shortfall == pytest.approx(0.4, abs=0.01)
-        assert q.elasticity == pytest.approx(0.25)
-        assert q.loss == pytest.approx(4_000_000 * 0.25 * 0.4, rel=0.01)
+        assert q.elasticity == pytest.approx(0.25 * (1 - 0.7 * 0.25))
+        assert q.loss == pytest.approx(4_000_000 * q.elasticity * 0.4, rel=0.01)
         # Cushion = 10% reserves + 15% margin
         assert q.wealth == pytest.approx(400_000 + 600_000)
         assert q.protection > 0 and q.cost_loaded == pytest.approx(q.protection * q.loaded_price)
@@ -268,8 +284,67 @@ class TestRegions:
         w = FakeWeather(places, {(39.2, -106.8): _steady(), (39.3, -120.1): _steady(), (39.6, -106.5): _steady()})
         rocky = quote("ski_resort", "Rocky", 1_000_000, today=TODAY, session=w)
         coast = quote("ski_resort", "Coast", 1_000_000, today=TODAY, session=w)
-        assert coast.loss == pytest.approx(rocky.loss * 0.8 / 0.25, rel=0.01)
+        assert coast.loss == pytest.approx(rocky.loss * 0.55 / 0.25, rel=0.01)
 
     def test_snow_removal_uses_its_own_sensitivity(self, weather):
         q = quote("snow_removal", "Snowtown", 500_000, today=TODAY, session=weather)
         assert q.elasticity == 1.0
+
+
+# ------------------------------------------------------------ snow stations
+STATION = {"stationTriplet": "1:CO:SNTL", "networkCode": "SNTL", "name": "Snowtown Summit",
+           "latitude": 39.25, "longitude": -106.8, "elevation": 10_500, "beginDate": "1980-10-01 00:00"}
+
+
+def _station_weather(swe):
+    return FakeWeather({"Snowtown": (39.2, -106.8)},
+                       {(39.2, -106.8): _steady(), (39.6, -106.5): _steady()},
+                       stations=[STATION, {**STATION, "networkCode": "SCAN", "stationTriplet": "2:CO:SCAN"}],
+                       swe={"1:CO:SNTL": swe})
+
+
+class TestStations:
+    """findings/07_resorts.md: the grid and the mountain often disagree about
+    which seasons were bad; a real contract settles on a named station."""
+
+    def test_prices_from_the_mountain_station_when_one_is_close(self):
+        # Station sees bad winters 1 in 3 (grid: 1 in 4); peaks in inches of water.
+        swe = {1985 + i: (12.0 if i % 3 == 0 else 24.0) for i in range(36)}
+        q = quote("ski_resort", "Snowtown", 4_000_000, today=TODAY, session=_station_weather(swe))
+        assert "SNOTEL Snowtown Summit" in q.index_source
+        assert q.unit.startswith("in.")
+        assert q.normal_cm == pytest.approx(24.0)
+        assert q.probability.historical == pytest.approx(12 / 36)
+        assert any("settle on this station" in a for a in q.assumptions)
+
+    def test_falls_back_to_the_grid_without_a_long_station_record(self):
+        swe = {2020 + i: 20.0 for i in range(5)}                 # only 5 winters
+        q = quote("ski_resort", "Snowtown", 4_000_000, today=TODAY, session=_station_weather(swe))
+        assert q.index_source.startswith("ERA5") and q.unit.startswith("cm")
+
+    def test_grid_can_be_forced(self):
+        swe = {1985 + i: 20.0 for i in range(36)}
+        q = quote("ski_resort", "Snowtown", 4_000_000, index="era5", today=TODAY, session=_station_weather(swe))
+        assert q.index_source.startswith("ERA5")
+
+    def test_station_index_required_but_missing_is_explained(self, weather):
+        with pytest.raises(ValueError, match="No snow station"):
+            quote("ski_resort", "Snowtown", 4_000_000, index="station", today=TODAY, session=weather)
+
+
+class TestResortEvidence:
+    """findings/06_resort_financials.md: Vail's 22 seasons of filings."""
+
+    def test_presold_passes_soften_the_loss(self, weather):
+        none = quote("ski_resort", "Snowtown", 4_000_000, pass_share=0.0, today=TODAY, session=weather)
+        heavy = quote("ski_resort", "Snowtown", 4_000_000, pass_share=0.7, today=TODAY, session=weather)
+        assert heavy.loss == pytest.approx(none.loss * (1 - 0.7 * 0.7), rel=0.01)
+
+    def test_extreme_shortfalls_stop_scaling(self):
+        """Tahoe at 19% of normal lost 16-28% of visits, not ~65%."""
+        dire = {1985 + i: (200.0 * 0.15 if i % 4 == 0 else 200.0) for i in range(40)}  # bad = 85% short
+        w = FakeWeather({"Coast": (39.3, -120.1)}, {(39.3, -120.1): dire, (39.6, -106.5): dire})
+        q = quote("ski_resort", "Coast", 1_000_000, pass_share=0.0, today=TODAY, session=w)
+        assert q.avg_shortfall == pytest.approx(0.85, abs=0.01)
+        assert q.loss == pytest.approx(1_000_000 * 0.55 * 0.5, rel=0.01)   # counted as 50%
+        assert q.loss <= 0.35 * 1_000_000

@@ -2174,6 +2174,7 @@ def create_app() -> FastAPI:
 
         return [
             {"key": b.key, "label": b.label, "elasticity_scale": b.elasticity_scale, "basis": b.basis,
+             "pass_share": b.pass_share,
              "margin": b.margin, "reserves_frac": b.reserves_frac}
             for b in BUSINESSES.values()
         ]
@@ -2209,6 +2210,8 @@ def create_app() -> FastAPI:
                 margin=req.margin,
                 trigger_fraction=req.trigger_fraction or DEFAULT_TRIGGER_FRACTION,
                 loading=DEFAULT_LOADING if req.loading is None else req.loading,
+                index=req.index,
+                pass_share=req.pass_share,
             )
         except ClimateError as exc:
             raise HTTPException(status_code=503, detail=f"Weather history unavailable right now: {exc}")

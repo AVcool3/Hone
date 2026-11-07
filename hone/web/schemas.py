@@ -849,6 +849,10 @@ class QuoteRequest(BaseModel):
     gamma: float | None = Field(default=None, ge=0, le=20)
     trigger_fraction: float | None = Field(default=None, ge=0.3, le=0.95)
     loading: float | None = Field(default=None, ge=0, le=2)
+    #: "auto" (snow station if one is close, else the grid), "era5", "station"
+    index: str = "auto"
+    #: share of revenue from season passes sold before the season (0-1)
+    pass_share: float | None = Field(default=None, ge=0, le=1)
 
 
 class PlaceOut(BaseModel):

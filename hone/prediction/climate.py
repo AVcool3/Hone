@@ -176,3 +176,107 @@ def snowfall_history(
     end = min(today, date.fromordinal(today.toordinal() - 7))
     daily = daily_snowfall(place.latitude, place.longitude, start, end, session=session)
     return season_totals(daily, start_month, end_month)
+
+
+# ----------------------------------------------------------------- SNOTEL
+#
+# USDA NRCS SNOTEL: ~900 automated snow stations in the western US, on the
+# mountains themselves, many with records back to the 1980s. Public, no key.
+# Where one is close to a resort it beats the reanalysis grid: a study of 30
+# resorts (research/prediction/findings/07_resorts.md) found the grid and
+# the mountain station often disagree about WHICH seasons were bad — and a
+# real snow contract would settle on a named station, so that's what to price.
+SNOTEL_API = "https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1"
+#: Use a station only if it's this close and has this many complete winters.
+SNOTEL_MAX_KM = 35.0
+SNOTEL_MIN_SEASONS = 20
+
+
+@dataclass(frozen=True)
+class Station:
+    triplet: str          # e.g. "1101:CO:SNTL"
+    name: str
+    latitude: float
+    longitude: float
+    elevation_ft: float | None
+    begin_year: int
+    distance_km: float = 0.0
+
+    @property
+    def label(self) -> str:
+        elev = f", {self.elevation_ft:,.0f} ft" if self.elevation_ft else ""
+        return f"SNOTEL {self.name} ({self.distance_km:.0f} km away{elev})"
+
+
+_STATIONS: list[dict] | None = None
+
+
+def snotel_stations(session: Any | None = None) -> list[dict]:
+    """All active SNOTEL stations (fetched once per process)."""
+    global _STATIONS
+    if _STATIONS is None:
+        raw = _get_json(f"{SNOTEL_API}/stations", {"activeOnly": "true"}, session,
+                        "Couldn't list snow stations")
+        _STATIONS = [s for s in raw if s.get("networkCode") == "SNTL"]
+    return _STATIONS
+
+
+def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    import math
+
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6371.0 * math.asin(math.sqrt(a))
+
+
+def nearest_snotel(place: Place, today: date | None = None, session: Any | None = None) -> Station | None:
+    """The closest station with a long enough record, or None."""
+    today = today or date.today()
+    best = None
+    for s in snotel_stations(session):
+        try:
+            begin = int(str(s.get("beginDate", "2100"))[:4])
+            d = _km(place.latitude, place.longitude, float(s["latitude"]), float(s["longitude"]))
+        except (TypeError, ValueError, KeyError):
+            continue
+        if d <= SNOTEL_MAX_KM and today.year - begin >= SNOTEL_MIN_SEASONS and (best is None or d < best[1]):
+            best = (s, d)
+    if best is None:
+        return None
+    s, d = best
+    return Station(s["stationTriplet"], s.get("name", "station"), float(s["latitude"]),
+                   float(s["longitude"]), s.get("elevation"), int(str(s.get("beginDate"))[:4]), d)
+
+
+def snotel_peak_swe(station: Station, today: date | None = None, session: Any | None = None) -> pd.Series:
+    """Peak snow water equivalent (inches) for each complete winter,
+    labelled by the year the winter starts (Oct of that year - Jun next)."""
+    today = today or date.today()
+    key = ("snotel", station.triplet, today.isoformat())
+    with _LOCK:
+        if key in _CACHE:
+            return _CACHE[key]
+    raw = _get_json(f"{SNOTEL_API}/data", {
+        "stationTriplets": station.triplet, "elements": "WTEQ", "duration": "DAILY",
+        "beginDate": f"{FIRST_SEASON}-10-01", "endDate": today.isoformat(),
+    }, session, "Couldn't fetch snow-station history")
+    try:
+        values = raw[0]["data"][0]["values"]
+    except (IndexError, KeyError, TypeError):
+        values = []
+    s = pd.Series({pd.Timestamp(v["date"]): float(v["value"]) for v in values
+                   if v.get("value") is not None}, dtype=float)
+    if s.empty:
+        out = pd.Series(dtype=float, name="peak_swe_in")
+    else:
+        season = s.index.year - (s.index.month < 10).astype(int)
+        counts = s.groupby(season).count()
+        peak = s.groupby(season).max()
+        # ~273 days Oct-Jun; a winter needs most of them, and must be over.
+        done = peak.index < (today.year if today.month >= 7 else today.year - 1)
+        out = peak[(counts >= 240) & done].sort_index().rename("peak_swe_in")
+        out.index = out.index.astype(int)
+    with _LOCK:
+        _CACHE[key] = out
+    return out

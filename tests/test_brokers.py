@@ -111,8 +111,9 @@ class TestClientRequests:
         assert e.value.status == 401 and e.value.code == "1076"
 
     def test_missing_keys_is_a_clear_error(self, monkeypatch):
-        monkeypatch.delenv("SNAPTRADE_CLIENT_ID", raising=False)
-        monkeypatch.delenv("SNAPTRADE_CONSUMER_KEY", raising=False)
+        # every accepted name, including the cloud-environment ones
+        for v in snap.CLIENT_ID_VARS + snap.CONSUMER_KEY_VARS:
+            monkeypatch.delenv(v, raising=False)
         assert not snap.configured()
         with pytest.raises(snap.SnapTradeError, match="SNAPTRADE_CLIENT_ID"):
             snap.SnapTradeClient()
@@ -383,7 +384,8 @@ class TestWebLinking:
 
     def test_not_configured(self, broker_client, monkeypatch):
         monkeypatch.setattr(web.snap, "SnapTradeClient", REAL_CLIENT)
-        monkeypatch.delenv("SNAPTRADE_CLIENT_ID")
+        for v in snap.CLIENT_ID_VARS:
+            monkeypatch.delenv(v, raising=False)
         r = broker_client.post("/api/broker/connect", json={"local_id": "0123456789abcdef"})
         assert r.status_code == 503 and "SNAPTRADE_CLIENT_ID" in r.json()["detail"]
 

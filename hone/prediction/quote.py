@@ -4,8 +4,12 @@
 types. Everything else is worked out here:
 
 1. **Where** — the place is geocoded (:mod:`hone.prediction.climate`).
-2. **How often seasons go badly there** — every winter's snowfall since
-   1980. A *bad season* is one below ``trigger_fraction`` of the place's
+2. **How often seasons go badly there** — every winter since 1980, from
+   the best index available: the nearest long-record USDA SNOTEL snow
+   station (peak snow water on the mountain itself) in the western US, else
+   ERA5 reanalysis snowfall. A 30-resort study (findings/07_resorts.md)
+   found the two often disagree about which seasons were bad, and a real
+   contract would settle on a named station. A *bad season* is one below ``trigger_fraction`` of the place's
    normal (median) snowfall — default 80%. (A percentile trigger is also
    available, but "the worst 25%" happens 25% of the time by definition
    everywhere, so it can't tell a steady place from a volatile one.)
@@ -56,7 +60,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .climate import Place, geocode, snowfall_history
+from .climate import ClimateError, Place, geocode, nearest_snotel, snotel_peak_swe, snowfall_history
 from .hedge import BASIS_SHRINK, IncomeExposure, hedge_income
 
 
@@ -67,7 +71,25 @@ from .hedge import BASIS_SHRINK, IncomeExposure, hedge_income
 #: snow is marginal; US low-snow seasons cost ~5-16% of visits nationally
 #: and 36% in the Pacific Northwest in 2014-15. Effects show up mainly below
 #: ~70% of normal, which is why the default bad-season trigger is 70%.
-REGION_ELASTICITY = {"pacific": 0.8, "rockies": 0.25, "east": 0.4, "other": 0.3}
+#: Updated with Vail Resorts' 22 seasons of filings (findings/06): an
+#: independent Rockies resort ~0.25-0.35, Pacific ~0.4-0.65 (Tahoe at 19% of
+#: normal snowpack lost 16-28% of visits). The East figure has no support in
+#: the filings — treat it as an assumption.
+REGION_ELASTICITY = {"pacific": 0.55, "rockies": 0.25, "east": 0.4, "other": 0.3}
+REGION_EVIDENCE = {
+    "pacific": "measured from Vail's Tahoe seasons and California market totals",
+    "rockies": "measured from Vail's Colorado seasons and published studies",
+    "east": "an assumption — no published or filed figures support it yet",
+    "other": "an assumption based on European studies",
+}
+#: Season passes are paid for before anyone knows the snow, so they don't
+#: refund in a bad season. Vail's results fit elasticity x (1 - 0.7 x share)
+#: at both 40% and 65-70% pass shares (findings/06).
+PASS_DAMPING = 0.7
+#: Beyond a 50% shortfall, losses stop scaling: snowmaking, higher terrain
+#: and loyal pass holders put a floor under the season (Tahoe at 19% of
+#: normal lost 16-28%, not the ~65% a straight line predicts).
+MAX_SHORTFALL_COUNTED = 0.5
 #: In the East/Midwest temperature (rain vs snow, snowmaking days) matters
 #: more than snowfall, so a snowfall contract tracks revenue less closely.
 REGION_BASIS_SCALE = {"pacific": 1.0, "rockies": 1.0, "east": 0.8, "other": 0.9}
@@ -104,6 +126,8 @@ class Business:
     reserves_frac: float = 0.25
     #: revenue that's proportional to snowfall itself, whatever the region
     fixed_elasticity: float | None = None
+    #: default share of revenue from passes sold before the season
+    pass_share: float = 0.0
     season: tuple[int, int] = (11, 4)  # Nov-Apr
 
     def elasticity_for(self, region: str) -> float:
@@ -116,8 +140,8 @@ class Business:
 
 BUSINESSES = {
     b.key: b for b in [
-        Business("ski_resort", "Ski resort", elasticity_scale=1.0, basis=0.7, max_loss_frac=0.6,
-                 margin=0.15, reserves_frac=0.10),
+        Business("ski_resort", "Ski resort", elasticity_scale=1.0, basis=0.7, max_loss_frac=0.35,
+                 margin=0.15, reserves_frac=0.10, pass_share=0.25),
         Business("ski_instructor", "Ski instructor (personal income)", elasticity_scale=1.3, basis=0.6,
                  max_loss_frac=0.7, margin=1.0, reserves_frac=0.25),
         Business("mountain_retail", "Mountain-town shop or restaurant", elasticity_scale=0.7, basis=0.5,
@@ -200,7 +224,7 @@ class Quote:
     history: list[SeasonRow]
     normal_cm: float
     trigger_cm: float
-    trigger_rule: str          # "80% of normal" or "worst 25% of seasons"
+    trigger_rule: str          # "70% of normal" or "worst 25% of seasons"
     probability: Probability
     avg_shortfall: float       # average % below normal in bad seasons
     loss: float                # estimated revenue lost in a bad season
@@ -219,6 +243,10 @@ class Quote:
     protection_if_perfect: float = 0.0
     assumptions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: what the history measures, and where it comes from. history[].cm,
+    #: normal_cm and trigger_cm are in this unit (the names are historical).
+    unit: str = "cm of snowfall"
+    index_source: str = "ERA5 reanalysis snowfall (~25 km grid)"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -263,12 +291,19 @@ def estimated_loss(
     sample: np.ndarray, normal_cm: float, trigger_cm: float, revenue: float, biz: Business,
     elasticity: float,
 ) -> tuple[float, float]:
+    """(revenue lost in a typical bad season, average % shortfall).
+
+    Each bad season's shortfall counts up to MAX_SHORTFALL_COUNTED, then is
+    multiplied by the (pass-adjusted) elasticity; capped at max_loss_frac.
+    """
     """(revenue lost in a typical bad season, average % shortfall)."""
     bad = sample[sample < trigger_cm]
     if len(bad) == 0 or normal_cm <= 0:
         return 0.0, 0.0
-    shortfall = float(np.mean(np.clip((normal_cm - bad) / normal_cm, 0.0, 1.0)))
-    loss = min(revenue * elasticity * shortfall, revenue * biz.max_loss_frac)
+    raw = np.clip((normal_cm - bad) / normal_cm, 0.0, 1.0)
+    shortfall = float(np.mean(raw))
+    counted = float(np.mean(np.minimum(raw, MAX_SHORTFALL_COUNTED)))
+    loss = min(revenue * elasticity * counted, revenue * biz.max_loss_frac)
     return float(loss), shortfall
 
 
@@ -310,7 +345,9 @@ def quote(
     trigger_percentile: float | None = None,
     margin: float | None = None,
     basis: float | None = None,
+    pass_share: float | None = None,
     loading: float = DEFAULT_LOADING,
+    index: str = "auto",
     today: date | None = None,
     session: Any | None = None,
 ) -> Quote:
@@ -339,9 +376,32 @@ def quote(
         raise ValueError("basis correlation must be between 0 and 1")
 
     region = region_of(place.latitude, place.longitude)
-    elasticity = biz.elasticity_for(region)
+    pass_share = biz.pass_share if pass_share is None else float(pass_share)
+    if not 0.0 <= pass_share <= 1.0:
+        raise ValueError("pass share must be between 0% and 100%")
+    elasticity = biz.elasticity_for(region) * (1.0 - PASS_DAMPING * pass_share)
     basis = biz.basis_for(region) if basis is None else float(basis)
-    totals = snowfall_history(place, *biz.season, today=today, session=session)
+    # The index: a mountain snow station when there's a good one nearby,
+    # otherwise the reanalysis grid. ("era5" forces the grid.)
+    if index not in ("auto", "era5", "station"):
+        raise ValueError("index must be 'auto', 'era5' or 'station'")
+    station = None
+    if index in ("auto", "station") and region != "other":
+        try:
+            station = nearest_snotel(place, today=today, session=session)
+        except ClimateError:
+            station = None
+    totals = None
+    if station is not None:
+        swe = snotel_peak_swe(station, today=today, session=session)
+        if len(swe) >= 10:
+            totals = swe
+            unit, source = "in. of snow water (season peak)", station.label
+    if totals is None:
+        if index == "station":
+            raise ValueError("No snow station with a long enough record near this place.")
+        totals = snowfall_history(place, *biz.season, today=today, session=session)
+        unit, source = "cm of snowfall", "ERA5 reanalysis snowfall (~25 km grid)"
     if len(totals) < 10:
         raise ValueError("Not enough snowfall history at this location to price a season.")
     normal = float(totals.median())
@@ -397,15 +457,18 @@ def quote(
     market = nearest_market(place, totals, biz, today, session)
 
     assumptions = [
-        f"A bad season is below {trigger:,.0f} cm here ({rule}); {prob.historical:.0%} of the {prob.n_seasons} seasons since {totals.index.min()} were that bad.",
-        f"Revenue falls {elasticity:.2f}% for every 1% of snowfall below normal ({normal:,.0f} cm), capped at {biz.max_loss_frac:.0%} — "
-        + (f"the published range for ski resorts in this region ({region})" if biz.fixed_elasticity is None and biz.elasticity_scale == 1.0
+        f"Priced from {source}.",
+        f"A bad season is below {trigger:,.1f} {unit} here ({rule}); {prob.historical:.0%} of the {prob.n_seasons} seasons since {totals.index.min()} were that bad.",
+        f"Revenue falls {elasticity:.2f}% for every 1% below normal (shortfalls beyond {MAX_SHORTFALL_COUNTED:.0%} count as {MAX_SHORTFALL_COUNTED:.0%}), capped at {biz.max_loss_frac:.0%} of revenue — "
+        + (f"{REGION_EVIDENCE.get(region, 'an assumption')} ({region})" if biz.fixed_elasticity is None and biz.elasticity_scale == 1.0
            else "set directly for this business" if biz.fixed_elasticity is not None
            else f"{biz.elasticity_scale:g}x the ski-resort figure for this region ({region}); no published data exists for this business type, so treat it as an estimate")
+        + (f", reduced because {pass_share:.0%} of revenue is season passes sold before the snow is known" if pass_share > 0 else "")
         + ".",
         f"A contract on this place's snowfall tracks your revenue with correlation {basis:.1f} (snowmaking and the economy matter too).",
         f"Cushion for a bad season: ${reserves:,.0f} cash reserves plus a normal season's profit of ${revenue * margin:,.0f} ({margin:.0%} of ${revenue:,.0f} revenue); risk aversion {gamma:g}.",
-        "Snowfall data is ERA5 reanalysis (~25 km grid): it understates mountain snow, so only comparisons within this place's own history are used. A real contract would settle on a named weather station.",
+        ("A contract priced this way would settle on this station's measurement." if station is not None and unit.startswith("in.")
+         else "ERA5 is a ~25 km grid: it understates mountain snow and can disagree with the mountain about which seasons were bad, so only comparisons within this place's own history are used. A real contract would settle on a named weather station."),
     ]
     if prob.trend_used:
         assumptions.append(
@@ -423,4 +486,5 @@ def quote(
         plan=plan.to_dict(), nearby_market=market,
         protection_if_perfect=float(max(perfect.contracts, 0)),
         assumptions=assumptions, warnings=warnings,
+        unit=unit, index_source=source,
     )

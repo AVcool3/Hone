@@ -51,6 +51,7 @@ export default function QuotePage() {
     basis: saved.basis || '',
     trigger: saved.trigger || '80',
     loading: saved.loading || '30',
+    passShare: saved.passShare || '',
   });
   const [businesses, setBusinesses] = useState([]);
   const [matches, setMatches] = useState(null);   // place search results
@@ -98,6 +99,7 @@ export default function QuotePage() {
       basis: opt(form.basis),
       trigger_fraction: opt(form.trigger, 0.01),
       loading: opt(form.loading, 0.01),
+      pass_share: opt(form.passShare, 0.01),
       gamma,
     };
     try {
@@ -166,6 +168,14 @@ export default function QuotePage() {
               <Field label="Bad season = below what % of normal" htmlFor="q-trig" hint="Default: 80%">
                 <input id="q-trig" type="number" min="30" max="95" value={form.trigger} onChange={e => set({ trigger: e.target.value })} />
               </Field>
+              {/* Season passes are paid before the snow is known, so they soften a
+                  bad season (Vail's filings: elasticity x (1 - 0.7 x pass share)). */}
+              {biz?.pass_share > 0 && (
+                <Field label="Revenue from season passes sold in advance (%)" htmlFor="q-pass"
+                  hint={`Default: ${fmtPct(biz.pass_share)}. Pre-sold passes don't refund in a bad season.`}>
+                  <input id="q-pass" type="number" min="0" max="100" value={form.passShare} onChange={e => set({ passShare: e.target.value })} />
+                </Field>
+              )}
               <Field label="Provider's margin over fair price (%)" htmlFor="q-load" hint="Default: 30%. 0 shows the pure fair price.">
                 <input id="q-load" type="number" min="0" max="200" value={form.loading} onChange={e => set({ loading: e.target.value })} />
               </Field>
@@ -192,6 +202,11 @@ export default function QuotePage() {
 /* ------------------------------------------------------------------ result */
 function QuoteResult({ q }) {
   const p = q.probability;
+  // The index is either a mountain snow station (inches of snow water at the
+  // season's peak) or the reanalysis grid (cm of snowfall) — see quote.py.
+  const station = q.unit.startsWith('in.');
+  const u = station ? 'in.' : 'cm';
+  const amount = v => (station ? v.toFixed(1) : Math.round(v));
   const none = q.protection <= 0;
   const oneIn = p.estimate > 0 ? Math.round(1 / p.estimate) : null;
   const m = q.nearby_market;
@@ -208,7 +223,7 @@ function QuoteResult({ q }) {
         )}
         <p className="small mt-1">
           Pays {none ? 'out' : fmtMoney(q.protection)} if {q.place.label.split(',')[0]} gets less than{' '}
-          <strong>{Math.round(q.trigger_cm)} cm</strong> of snow this winter ({q.trigger_rule}).
+          <strong>{amount(q.trigger_cm)} {u}</strong> {station ? 'of snow water at its peak' : 'of snow'} this winter ({q.trigger_rule}).
           {q.loading > 0 && !none && <> At the fair price it would cost {fmtMoney(q.cost_fair)}; the rest is a typical provider's margin.</>}
         </p>
         <div className="pm-stats mt-4">
@@ -224,16 +239,17 @@ function QuoteResult({ q }) {
       <div className="card">
         <div className="takeaway">Every winter since {q.history[0]?.season}</div>
         <p className="tiny muted mb-2">
-          Seasonal snowfall here. Bars below the line were bad seasons ({fmtPct(p.historical)} of them).
+          {station ? 'Peak snow water on the mountain each winter' : 'Seasonal snowfall here'}. Bars below the line were bad seasons ({fmtPct(p.historical)} of them).
           {p.trend_used
-            ? ` Snowfall has a trend of ${p.trend_cm_per_decade > 0 ? '+' : ''}${Math.round(p.trend_cm_per_decade)} cm per decade, so the price uses today's level.`
+            ? ` There's a trend of ${p.trend_cm_per_decade > 0 ? '+' : ''}${station ? p.trend_cm_per_decade.toFixed(1) : Math.round(p.trend_cm_per_decade)} ${u} per decade, so the price uses today's level.`
             : ' No meaningful long-term trend, so the price uses the history as is.'}
         </p>
-        <SeasonBars history={q.history} trigger={q.trigger_cm} normal={q.normal_cm} />
+        <p className="tiny muted mb-2">Source: {q.index_source}.</p>
+        <SeasonBars history={q.history} trigger={q.trigger_cm} normal={q.normal_cm} unit={u} />
         {/* Legend under the chart: the two lines are often too close to label inside it. */}
         <div className="pm-legend tiny muted mt-2">
-          <span><i style={{ background: 'var(--loss, #b45309)' }} /> Bad season (below {Math.round(q.trigger_cm)} cm, dashed line)</span>
-          <span><i style={{ background: 'var(--current)' }} /> Other seasons · normal {Math.round(q.normal_cm)} cm (dotted line)</span>
+          <span><i style={{ background: 'var(--loss, #b45309)' }} /> Bad season (below {amount(q.trigger_cm)} {u}, dashed line)</span>
+          <span><i style={{ background: 'var(--current)' }} /> Other seasons · normal {amount(q.normal_cm)} {u} (dotted line)</span>
         </div>
       </div>
 
@@ -272,7 +288,7 @@ function QuoteResult({ q }) {
  * One bar per season; bad seasons in the warning colour; dashed lines for
  * the bad-season threshold and normal. Plain SVG, scales to the card.
  */
-function SeasonBars({ history, trigger, normal }) {
+function SeasonBars({ history, trigger, normal, unit = 'cm' }) {
   const W = 760, H = 200, pad = { l: 36, r: 8, t: 8, b: 22 };
   const max = Math.max(...history.map(h => h.cm), normal) * 1.05 || 1;
   const bw = (W - pad.l - pad.r) / history.length;
@@ -289,7 +305,7 @@ function SeasonBars({ history, trigger, normal }) {
       {history.map((h, i) => (
         <rect key={h.season} x={pad.l + i * bw + 1} y={y(h.cm)} width={Math.max(bw - 2, 1)} height={Math.max(H - pad.b - y(h.cm), 0)}
           fill={h.bad ? 'var(--loss, #b45309)' : 'var(--current)'} rx="1.5">
-          <title>{`${h.season}–${String(h.season + 1).slice(2)}: ${Math.round(h.cm)} cm${h.bad ? ' (bad season)' : ''}`}</title>
+          <title>{`${h.season}–${String(h.season + 1).slice(2)}: ${unit === 'in.' ? h.cm.toFixed(1) : Math.round(h.cm)} ${unit}${h.bad ? ' (bad season)' : ''}`}</title>
         </rect>
       ))}
       <line x1={pad.l} x2={W - pad.r} y1={y(trigger)} y2={y(trigger)} stroke="var(--loss, #b45309)" strokeDasharray="5 4" strokeWidth="1.5" />

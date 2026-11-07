@@ -14,3 +14,8 @@ research/conviction/results/panel_*.csv
 
 # Frontend dependencies (the built bundle in hone/web/static/ IS committed)
 frontend/node_modules/
+
+# Raw weather/snow-station downloads cached by research/prediction/resorts.py
+# (regenerable; the summary CSV is kept)
+research/prediction/data/resorts/era5_*.json.gz
+research/prediction/data/resorts/snotel_*.json.gz

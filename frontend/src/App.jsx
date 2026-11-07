@@ -37,6 +37,7 @@ import BacktestPage from './pages/workspace/BacktestPage.jsx';
 import SettingsPage from './pages/workspace/SettingsPage.jsx';
 import IncomeHedgePage from './pages/workspace/prediction/IncomeHedgePage.jsx';
 import MarketsPage from './pages/workspace/prediction/MarketsPage.jsx';
+import QuotePage from './pages/workspace/prediction/QuotePage.jsx';
 
 /** The product for the current URL ("/" means Stocks). */
 export function useProduct() {
@@ -107,6 +108,7 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="hedge" element={<IncomeHedgePage />} />
           <Route path="markets" element={<MarketsPage />} />
+          <Route path="quote" element={<QuotePage />} />
           <Route path="*" element={<NotFound inApp />} />
         </Route>
         <Route path="*" element={<NotFound />} />

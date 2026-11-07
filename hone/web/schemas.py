@@ -816,3 +816,31 @@ class PredictionCatalogResponse(BaseModel):
     #: whether this deployment refreshes from Kalshi at all (HONE_KALSHI_LIVE)
     live_enabled: bool = True
     industries: list[PredictionIndustryOut]
+
+
+# ------------------------------------------------------------ quotes
+class QuoteRequest(BaseModel):
+    """'I own a ski resort in X' — see hone/prediction/quote.py."""
+
+    business: str = "ski_resort"
+    #: a place name ("Aspen") or, after picking from /api/predict/places,
+    #: exact coordinates with a label
+    place: str | None = Field(default=None, max_length=200)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    place_label: str | None = Field(default=None, max_length=200)
+    #: season revenue (or personal season income), dollars
+    revenue: float = Field(gt=0, le=1e10)
+    #: optional — defaults are per business type
+    reserves: float | None = Field(default=None, ge=0)
+    margin: float | None = Field(default=None, gt=0, le=1)
+    gamma: float | None = Field(default=None, ge=0, le=20)
+    trigger_fraction: float | None = Field(default=None, ge=0.3, le=0.95)
+    loading: float | None = Field(default=None, ge=0, le=2)
+
+
+class PlaceOut(BaseModel):
+    label: str
+    latitude: float
+    longitude: float
+    elevation: float | None = None

@@ -2162,6 +2162,58 @@ def create_app() -> FastAPI:
             **payload,
         )
 
+    # ---------------------------------------------------------- quotes
+    @app.get("/api/predict/businesses")
+    def predict_businesses() -> list[dict]:
+        """Business types the quote engine knows, with their default assumptions."""
+        from ..prediction.quote import BUSINESSES
+
+        return [
+            {"key": b.key, "label": b.label, "elasticity_scale": b.elasticity_scale, "basis": b.basis,
+             "margin": b.margin, "reserves_frac": b.reserves_frac}
+            for b in BUSINESSES.values()
+        ]
+
+    @app.get("/api/predict/places", response_model=list[s.PlaceOut])
+    def predict_places(q: str) -> list[s.PlaceOut]:
+        """Places matching a name, so the user can confirm which one they mean."""
+        from ..prediction.climate import ClimateError, geocode
+
+        try:
+            found = geocode(q, count=6)
+        except ClimateError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        return [s.PlaceOut(label=p.label, latitude=p.latitude, longitude=p.longitude,
+                           elevation=p.elevation) for p in found]
+
+    @app.post("/api/predict/quote")
+    def predict_quote(req: s.QuoteRequest) -> dict:
+        """Price and size protection from a minimal description of a business."""
+        from ..prediction.climate import ClimateError, Place
+        from ..prediction.quote import DEFAULT_LOADING, DEFAULT_TRIGGER_FRACTION, quote
+
+        if req.latitude is not None and req.longitude is not None:
+            place = Place(req.place_label or req.place or "Selected place", "", "",
+                          req.latitude, req.longitude)
+        elif req.place:
+            place = req.place
+        else:
+            raise HTTPException(status_code=422, detail="Tell us where the business is.")
+        try:
+            q = quote(
+                req.business, place, req.revenue, reserves=req.reserves, gamma=req.gamma,
+                margin=req.margin,
+                trigger_fraction=req.trigger_fraction or DEFAULT_TRIGGER_FRACTION,
+                loading=DEFAULT_LOADING if req.loading is None else req.loading,
+            )
+        except ClimateError as exc:
+            raise HTTPException(status_code=503, detail=f"Weather history unavailable right now: {exc}")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        out = q.to_dict()
+        out["tier"] = _tier_info(q.gamma).model_dump()
+        return out
+
     # --------------------------------------------------- SPA page routes
     # Registered last so no /api route can ever be shadowed by it. Deep
     # links such as /crypto/app/theses or /stocks/methodology/calibration

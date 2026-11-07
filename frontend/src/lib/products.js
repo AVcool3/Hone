@@ -94,6 +94,7 @@ export const WORKSPACE_SECTIONS = {
   prediction: [
     { key: '', label: 'Overview', icon: 'DashboardSquare01Icon' },
     { key: 'risk', label: 'Risk aversion', icon: 'Target02Icon' },
+    { key: 'quote', label: 'Price my risk', icon: 'Analytics01Icon' },
     { key: 'hedge', label: 'Income hedge', icon: 'Shield01Icon' },
     { key: 'markets', label: 'Markets', icon: 'Store01Icon' },
     { key: 'record', label: 'Track record', icon: 'Notebook01Icon' },

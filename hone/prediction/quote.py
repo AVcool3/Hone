@@ -63,6 +63,7 @@ from scipy import stats
 from .climate import ClimateError, Place, geocode, snowfall_history
 from .perils import PERILS, history as peril_history
 from .hedge import BASIS_SHRINK, IncomeExposure, hedge_income
+from . import forecast as climate_forecast
 
 
 # --------------------------------------------------------------- assumptions
@@ -304,6 +305,9 @@ class Quote:
     condition: str = ""            # "gets less than 140 cm of snowfall (Nov–Apr)"
     season_label: str = "Nov–Apr"
     worse_word: str = "less snow"  # for "x% ___ than normal"
+    #: what the El Niño / PDO forecaster did (forecast.Shift.to_dict()), or
+    #: None when it wasn't consulted (non-snow perils, or forecast=False)
+    forecast: dict | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -419,8 +423,14 @@ def quote(
     index: str = "auto",
     today: date | None = None,
     session: Any | None = None,
+    forecast: bool = True,
 ) -> Quote:
-    """Everything a user needs to see, from three inputs."""
+    """Everything a user needs to see, from three inputs.
+
+    ``forecast=True`` lets this winter's El Niño / PDO readings tilt the
+    bad-season odds, but only where that beat history alone in testing
+    (see ``hone/prediction/forecast.py``). Snow only, for now.
+    """
     if business not in BUSINESSES:
         raise ValueError(f"unknown business type {business!r}; choose from {sorted(BUSINESSES)}")
     if not revenue > 0:
@@ -481,7 +491,19 @@ def quote(
     prob, sample = bad_season_probability(totals, trigger, current + (0 if today.month >= first else 1), high)
     loss, shortfall = estimated_loss(sample, normal, trigger, revenue, biz, elasticity, high)
 
-    p = float(np.clip(prob.estimate, 0.02, 0.95))
+    p_history = float(prob.estimate)
+    shift = None
+    if forecast and peril.key == "snow":
+        # Tilt the history-based odds by this winter's Pacific signals. The
+        # forecaster returns p unchanged (and says why) wherever it has no
+        # tested skill, so this is safe to call for every snow quote.
+        priced_season = current + (0 if today.month >= first else 1)
+        shift = climate_forecast.shift_probability(
+            p_history, place.latitude, place.longitude,
+            climate_forecast.current_signals(today, session, season_year=priced_season),
+        )
+        p_history = shift.probability_after
+    p = float(np.clip(p_history, 0.02, 0.95))
     loaded = float(min(p * (1.0 + loading), 0.97))
     # What the owner actually has to absorb a bad season with.
     wealth = reserves + revenue * margin
@@ -541,6 +563,8 @@ def quote(
         ("A contract priced this way would settle on this station's measurement." if hist.settles_on_station
          else "ERA5 is a ~25 km grid: it smooths local extremes and can disagree with local stations about which seasons were bad, so only comparisons within this place's own history are used. A real contract would settle on a named weather station."),
     ]
+    if shift is not None:
+        assumptions.append(shift.explanation + (f" {shift.evidence}" if shift.applied and shift.evidence else ""))
     if prob.trend_used:
         assumptions.append(
             f"{peril.label} here has a trend of {prob.trend_cm_per_decade:+,.1f} {unit} per decade, so past seasons were adjusted to today's level."
@@ -558,6 +582,7 @@ def quote(
         protection_if_perfect=float(max(perfect.contracts, 0)),
         assumptions=assumptions, warnings=warnings,
         unit=unit, index_source=source,
+        forecast=shift.to_dict() if shift is not None else None,
         peril=peril.key, peril_label=peril.label, condition=peril.condition(trigger, unit),
         season_label=peril.season_label, worse_word=peril.worse_word,
     )

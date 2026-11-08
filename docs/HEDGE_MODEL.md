@@ -180,3 +180,15 @@ often disagree about which seasons were bad, so stations win whenever they
 exist. The snow sensitivities are measured from Vail's filings
 (findings/06). The non-snow sensitivities are still assumptions until
 findings/09 measures them, and the quotes say so.
+
+### This winter's outlook (El Niño / PDO)
+
+For snow quotes, `hone/prediction/forecast.py` can shift the history-based
+odds using the state of the Pacific before the winter starts:
+`log-odds = log-odds(history) + shift(region, El Niño, La Niña, PDO)`. It
+was trained on 25,180 SNOTEL station-winters. It is used **only where it
+beat history alone** in two held-out tests (leave one winter out, and
+forward in time). Today that is the Southwest only (findings/10). Readings
+are clipped to the range seen since 1980, and the shift is capped at 3× the
+odds. Every quote explains whether the forecast was used and why. Turn it
+off with `quote(..., forecast=False)`.

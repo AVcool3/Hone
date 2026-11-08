@@ -215,7 +215,13 @@ function QuoteResult({ q }) {
   const amount = v => (Math.abs(v) < 100 && !/days|nights/.test(q.unit) ? v.toFixed(1) : Math.round(v));
   const where = q.place.label.split(',')[0];
   const none = q.protection <= 0;
-  const oneIn = p.estimate > 0 ? Math.round(1 / p.estimate) : null;
+  // The El Niño / PDO forecaster (hone/prediction/forecast.py) may tilt the
+  // history-based odds for the coming winter. `fc.applied` is false wherever
+  // it has no tested skill; then the chance shown is history alone.
+  const fc = q.forecast;
+  const tilted = Boolean(fc?.applied);
+  const chance = tilted ? fc.probability_after : p.estimate;
+  const oneIn = chance > 0 ? Math.round(1 / chance) : null;
   const m = q.nearby_market;
 
   return (
@@ -234,7 +240,10 @@ function QuoteResult({ q }) {
         </p>
         <div className="pm-stats mt-4">
           <Stat size="sm" label="Chance of a bad season"
-            value={fmtPct(p.estimate)} note={`about 1 in ${oneIn} · likely ${fmtPct(p.low)}–${fmtPct(p.high)}`} />
+            value={fmtPct(chance)}
+            note={tilted
+              ? `about 1 in ${oneIn} · ${fmtPct(p.estimate)} on history alone, adjusted for this winter's El Niño`
+              : `about 1 in ${oneIn} · likely ${fmtPct(p.low)}–${fmtPct(p.high)}`} />
           <Stat size="sm" label="A bad season costs you" value={fmtMoney(q.loss)} note={`${fmtPct(q.avg_shortfall)} ${q.worse_word} than normal, on average`} />
           <Stat size="sm" label="Hone's price per $1 of cover" value={`${Math.round(q.loaded_price * 100)}¢`} note={`fair ${Math.round(q.fair_price * 100)}¢`} />
           <Stat size="sm" label="Worth to you" value={fmtMoney(q.plan.ce_gain)} note="certainty-equivalent gain at your risk aversion" />
@@ -258,6 +267,15 @@ function QuoteResult({ q }) {
           <span><i style={{ background: 'var(--current)' }} /> Other seasons · normal {amount(q.normal_cm)} {u} (dotted line)</span>
         </div>
       </div>
+
+      {/* This winter's outlook: shown whenever the forecaster was consulted,
+          including when it chose not to move the price (and why). */}
+      {fc && (
+        <Notice tone="plain" title={tilted ? "This winter's outlook:" : 'Outlook:'}>
+          {fc.explanation}
+          {tilted && fc.evidence && <span className="tiny muted"> {fc.evidence}</span>}
+        </Notice>
+      )}
 
       {q.warnings.map(w => <Notice key={w} tone="attention">{w}</Notice>)}
 

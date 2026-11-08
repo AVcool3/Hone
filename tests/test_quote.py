@@ -6,6 +6,7 @@ totals the tests choose, so every number here is checkable by hand.
 
 from __future__ import annotations
 
+import time
 from datetime import date
 
 import numpy as np
@@ -13,7 +14,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from hone.prediction import climate
+from hone.prediction import climate, forecast
 from hone.prediction.climate import Place, season_totals
 from hone.prediction.quote import BUSINESSES, bad_season_probability, quote
 from hone.web.app import create_app
@@ -111,6 +112,10 @@ def _steady(n=40, normal=200.0, bad_every=4, start=1985):
 def _fresh_cache():
     climate._CACHE.clear()
     climate._STATIONS = None
+    # No live El Niño readings in these tests: the forecaster reports
+    # "couldn't fetch" and leaves prices on history alone (it has its own
+    # tests in test_forecast.py).
+    forecast._SIGNALS = (time.time(), None)
 
 
 @pytest.fixture

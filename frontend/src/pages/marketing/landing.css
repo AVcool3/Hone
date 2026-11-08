@@ -1,0 +1,61 @@
+/*
+ * Landing page ("/"). Plain on purpose: cream page, one serif for headings,
+ * thin rules between sections, no motion. Colours come from the site tokens
+ * in styles/global.css (--ink, --line, --primary...).
+ */
+.landing { background: var(--bg-marketing); min-height: 100vh; display: flex; flex-direction: column; }
+.landing main { flex: 1; }
+
+/* Header: logo left, one button right. Not sticky: nothing to chase you. */
+.ld-header { border-bottom: 1px solid var(--line); }
+.ld-header__inner { display: flex; align-items: center; justify-content: space-between; min-height: 64px; }
+
+/* Intro beside the form */
+.ld-intro { padding: 72px 0 64px; }
+.ld-intro__grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 56px; align-items: start; }
+.ld-title { font-family: var(--font-display); font-weight: 400; font-size: clamp(38px, 5.2vw, 60px); line-height: 1.06; letter-spacing: -0.01em; max-width: 17ch; }
+.ld-lede { margin-top: 22px; font-size: 18px; line-height: 1.6; color: var(--ink-2); max-width: 56ch; }
+.ld-note { margin-top: 18px; font-size: 15px; color: var(--ink-3); }
+
+/* The form card */
+.ld-form { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 28px; scroll-margin-top: 24px; }
+.ld-form form { display: flex; flex-direction: column; }
+.ld-form__title { font-family: var(--font-display); font-weight: 400; font-size: 30px; line-height: 1.1; margin-bottom: 14px; }
+.ld-label { font-size: 14px; font-weight: 600; color: var(--ink); margin: 14px 0 6px; }
+.ld-submit { margin-top: 20px; width: 100%; min-height: 48px; font-size: 16px; }
+.ld-error { margin-top: 12px; font-size: 14px; color: var(--loss); }
+.ld-trap { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+/* Sections */
+.ld-section { padding: 64px 0; border-top: 1px solid var(--line); }
+.ld-section--alt { background: #f4f2e6; }
+.ld-h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(28px, 3.4vw, 38px); line-height: 1.1; }
+.ld-h3 { font-size: 17px; font-weight: 600; }
+.ld-p { margin-top: 8px; font-size: 16px; line-height: 1.6; color: var(--ink-2); max-width: 62ch; }
+.ld-muted { color: var(--ink-3); font-weight: 400; }
+.ld-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; margin-top: 28px; }
+/* Heading on the left, content on the right */
+.ld-split { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 40px; align-items: start; }
+.ld-list { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+.ld-list li { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 17px; }
+.ld-list + .ld-p { margin-top: 16px; }
+.ld-actions { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-top: 24px; }
+.ld-quiet-link { font-size: 15px; color: var(--ink-2); }
+
+/* Footer */
+.ld-footer { border-top: 1px solid var(--line); padding: 32px 0 40px; }
+.ld-footer__inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.ld-footer__links { display: flex; gap: 20px; flex-wrap: wrap; font-size: 15px; }
+.ld-footer__links a { color: var(--ink-2); text-decoration: none; }
+.ld-footer__links a:hover { color: var(--ink); text-decoration: underline; }
+.ld-fine { margin-top: 14px; font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+
+/* Phones: one column, 16px side gutters. */
+@media (max-width: 860px) {
+  .ld-intro { padding: 40px 0 48px; }
+  .ld-intro__grid, .ld-split { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .ld-cols { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .ld-section { padding: 48px 0; }
+  .ld-form { padding: 22px; }
+  .landing .container { padding: 0 16px; }
+}

@@ -1,0 +1,24 @@
+industry,driver,driver_move,outcome,measured_change,sensitivity,sensitivity_unit,episode,profit_effect,buffer,sources
+hotels,US unemployment,+3.5pp (5.8%->9.3%),RevPAR,-17% to -20%,-5.0 to -5.7,% RevPAR per pp unemployment,2009,Host Adj. EBITDA -42% (2.2x revenue); Marriott incentive fees -$157m,none (bookings weeks-months ahead),Host 8-K; Marriott 2009 AR
+hotels,US unemployment,+3.5pp,accommodation employment,-5.7% (annual); -7.6% peak-trough,~0.3x RevPAR,jobs vs RevPAR,2009,,,FRED CES7072100001
+hotels,travel shutdown,COVID,revenue,-50% to -70%,,,2020,operating losses,none,Quartr financials
+airlines,US unemployment,+3.5pp,revenue,-18% to -19%,-5.1 to -5.5,% revenue per pp unemployment,2009,losses,advance bookings ~1-3 months,UAL/CAPA; Delta/AJC
+airlines,jet fuel price,"2022 vs 2019: adj. fuel $3.36/gal, fuel expense +35% on 15% less capacity",revenue,+7.6% on -15% capacity (unit revenue ~+27%),fares recaptured >100% of the fuel increase ($3.6bn revenue gain vs ~$3.0bn fuel),,2022,operating margin 14.1% -> 7.2%,"fuel is a cost, not a revenue driver",Delta Q4 2022
+rideshare,US gasoline price,"+42% ($2.81 -> $3.99, Jan-Mar 2026)",fuel share of gross hourly pay,13.2% -> 17.4%,-4.2% of gross pay (-4.8% of pay net of fuel); i.e. ~0.10-0.13 x the % gas rise,fraction of gross pay per unit % gas rise,Q1 2026,driver bears it; platform relief small (Lyft ~$20m in 2026),2022 surcharges $0.45-0.55/trip (Mar-Sep 2022),Gridwise; FRED GASREGW
+rideshare,US gasoline price,+31% annual avg (2021 $3.01 -> 2022 $3.95); +66% at June 2022 peak,fuel cost as share of gross pay (computed at a 13% base share),"about -4% of gross (year), -8.6% of gross (peak weeks)",,,2022,,surcharges offset part (estimate in findings §3),computed; Uber newsroom; FRED GASREGW
+real_estate,30y mortgage rate,"+3.85pp (2.96% -> 6.81%), 2021->2023",existing-home sales,-33%,-8.6,% per pp rate,2022-23,,pending-sale pipeline only (1-2 months),NAR via NAHB
+real_estate,30y mortgage rate,+3.85pp,revenue per agent (Compass),-39% (2 yrs); transactions/agent -36%,-10,% per pp rate,2022-23,Anywhere op. income $435m -> -$122m,none,Compass 10-K
+real_estate,30y mortgage rate,+1.5pp (2022->2023),commission paid per agent (Compass),-22%,-15,% per pp rate (one year),2023,,,Compass 10-K
+real_estate,30y mortgage rate,+1.5pp (2022->2023),NAR median REALTOR gross income,"-1% (transactions 12->10, volume -26%)",,survivor-biased,2023,,,NAR Member Profile 2024
+real_estate,30y mortgage rate,+3.85pp,mortgage originator revenue (Rocket),-71%,-18,% per pp rate,2021-23,,none,Quartr financials
+staffing,US unemployment,+3.5pp; payrolls -4.3%,"revenue (RHI, MAN cc, Kelly 9M)","-34%, -21%, -26%",-6 to -10,% revenue per pp unemployment,2009,RHI pre-tax -84%,temp assignments weeks; perm none,RHI 10-K; MAN release; Kelly 10-Q
+staffing,US unemployment,+3.5pp,permanent placement fees (RHI),-57%,-16,% per pp unemployment,2009,,none,RHI 10-K
+staffing,US unemployment,+3.5pp,temp help employment,-22.5% (annual); -34% peak-trough,5x total payrolls,,2009,,,FRED TEMPHELPS
+staffing,hiring slump (payrolls still growing),U3 +0.6pp; payrolls +2.2/+1.2/+0.5%,perm placement fees (RHI),"-22%, -14%, -10% (cum. -39%)",not explained by payrolls/U3,,2023-25,RHI op. income $891m -> $76m,none,RHI 10-Ks
+outdoor_venues,weather-impacted operating days,"18.6% of Q2 days (379/2,042), 49 closures",attendance,-9% quarter; -12% in the 6 bad weeks,~0.5,% attendance per % of days impacted,Q2 2025,"legacy Cedar Fair revenue -5%, EBITDA -12%; 55-80% flow-through",season passes (~ visits shift later) but pass sales lost (-300k units),Six Flags Q2 2025
+outdoor_venues,adverse weather (management estimate),bad season,attendance lost,3-10% of a quarter; ~4.5% of a year,,,2023-2026,$15m EBITDA (Q3 2024 Cedar Fair),,"Six Flags, United Parks calls"
+snow_removal,snowfall vs 10-yr average,58-62% of normal (vs 86-100% the year before),snow removal revenue,-30% to -34%,0.7 to 1.2,% revenue per % snowfall (YoY),"FY2017, FY2020","costs flex (subcontractors), profit hit smaller than revenue",some fixed-fee seasonal contracts,BrightView filings
+lawn_garden,late/cold spring,season start delayed ~4-6 weeks,POS at top retailers,-15% by mid-April -> flat for year,season elasticity ~0,,2018,,"demand deferred, not lost",Scotts calls
+hvac,cooling degree days,TX +9% / NE -10% / US -5%,residential revenue,TX +10%,~1.0 regional,% revenue per % CDD,Q3 2019,,replacement demand deferred partly,Lennox Q3 2019
+construction,rain days,+17 to +20 rain days in a quarter; record rainfall,aggregates shipments,-1% to -7%,,,2018-2020,under-absorbed fixed cost,backlog: work deferred to next quarter,"Martin Marietta, Vulcan"
+farms,drought,2012,corn yield,-16% YoY (~-25% vs expected),,,2012,~$17bn crop-insurance indemnities; prices rose,federal crop insurance + price offset,USDA NASS; Crop Insurance in America

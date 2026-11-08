@@ -1,0 +1,25 @@
+# Render.com blueprint — deploy with "New +" -> "Blueprint" pointing at
+# this repo, then add your custom domain under Settings -> Custom Domains.
+services:
+  - type: web
+    name: studiohone
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: HONE_PUBLIC
+        value: "1"
+      # Linked brokerages (docs/BROKERAGES.md). `sync: false` means Render
+      # asks for the value when you create the service; leave blank to skip.
+      - key: SNAPTRADE_CLIENT_ID
+        sync: false
+      - key: SNAPTRADE_CONSUMER_KEY
+        sync: false
+      # Price history for linked portfolios (free Alpaca keys; prices only).
+      - key: ALPACA_DATA_API_KEY
+        sync: false
+      - key: ALPACA_DATA_SECRET_KEY
+        sync: false
+      # Uncomment to password-gate the whole site:
+      # - key: HONE_ACCESS_PASSWORD
+      #   sync: false

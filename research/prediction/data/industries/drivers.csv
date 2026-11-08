@@ -1,0 +1,132 @@
+series_id,series,period,value,unit,aggregation,source_url
+UNRATE,US unemployment rate,2006,4.608,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2007,4.617,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2008,5.8,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2009,9.283,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2010,9.608,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2011,8.933,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2012,8.075,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2013,7.358,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2014,6.158,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2015,5.275,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2016,4.875,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2017,4.358,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2018,3.892,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2019,3.675,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2020,8.1,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2021,5.35,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2022,3.65,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2023,3.625,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2024,4.025,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2025,4.264,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+UNRATE,US unemployment rate,2026,4.23,%,annual mean of monthly,https://fred.stlouisfed.org/series/UNRATE
+PAYEMS,Total nonfarm payrolls,2006,136432.75,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2007,137978.417,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2008,137226.417,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2009,131291.083,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2010,130334.667,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2011,131916.667,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2012,134154.5,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2013,136360.667,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2014,138922.75,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2015,141801.333,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2016,144331.917,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2017,146610.417,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2018,148893.667,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2019,150905.083,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2020,142161.917,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2021,146284.333,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2022,152549.167,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2023,155895.25,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2024,157693.833,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2025,158438.917,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+PAYEMS,Total nonfarm payrolls,2026,158860.0,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/PAYEMS
+GASREGW,US regular gasoline retail price,2006,2.572,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2007,2.796,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2008,3.246,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2009,2.353,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2010,2.782,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2011,3.521,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2012,3.618,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2013,3.505,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2014,3.358,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2015,2.429,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2016,2.143,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2017,2.415,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2018,2.719,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2019,2.604,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2020,2.168,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2021,3.008,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2022,3.951,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2023,3.519,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2024,3.304,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2025,3.097,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price,2026,3.874,$/gal,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/GASREGW
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2006,6.413,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2007,6.337,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2008,6.027,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2009,5.037,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2010,4.69,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2011,4.448,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2012,3.657,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2013,3.976,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2014,4.169,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2015,3.851,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2016,3.654,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2017,3.99,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2018,4.545,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2019,3.936,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2020,3.112,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2021,2.958,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2022,5.344,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2023,6.807,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2024,6.721,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2025,6.595,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+MORTGAGE30US,30-year fixed mortgage rate (Freddie Mac),2026,6.531,%,annual mean of weekly (2026 = Jan-Nov),https://fred.stlouisfed.org/series/MORTGAGE30US
+TEMPHELPS,Temporary help services employment,2006,2638.883,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2007,2598.983,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2008,2354.817,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2009,1824.242,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2010,2091.917,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2011,2311.642,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2012,2495.358,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2013,2618.758,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2014,2760.842,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2015,2875.308,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2016,2887.092,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2017,2938.625,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2018,2991.358,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2019,2956.4,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2020,2519.717,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2021,2902.475,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2022,3089.3,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2023,2844.65,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2024,2611.492,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2025,2496.967,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+TEMPHELPS,Temporary help services employment,2026,2495.44,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/TEMPHELPS
+CES7072100001,Accommodation employment,2006,1833.233,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2007,1866.9,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2008,1868.117,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2009,1762.225,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2010,1760.167,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2011,1800.908,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2012,1824.775,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2013,1864.758,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2014,1894.025,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2015,1923.475,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2016,1961.025,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2017,2003.608,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2018,2035.108,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2019,2080.917,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2020,1472.325,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2021,1489.042,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2022,1776.167,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2023,1897.967,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2024,1929.975,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2025,1933.408,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+CES7072100001,Accommodation employment,2026,1924.71,thousands,annual mean of monthly,https://fred.stlouisfed.org/series/CES7072100001
+GASREGW,US regular gasoline retail price (week),2026-01-05,2.796,$/gal,weekly,https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price (week),2026-01-12,2.779,$/gal,weekly,https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price (week),2026-03-30,3.99,$/gal,weekly,https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price (week),2022-06-13,5.006,$/gal,weekly,https://fred.stlouisfed.org/series/GASREGW
+GASREGW,US regular gasoline retail price (week),2022-02-28,3.608,$/gal,weekly,https://fred.stlouisfed.org/series/GASREGW

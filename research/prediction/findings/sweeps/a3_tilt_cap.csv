@@ -1,0 +1,7 @@
+variant,mkt right: median,mkt right: p5,mkt right: p1,mkt right: mean,view right: median,view right: mean,break-even P(view right)
+current advice,0,-0.222263,-0.39508,0.23644,0.425146,1.4409,
+cap 0x pure,0.133626,0,0,0.432624,0,0.4421,0.164172
+cap 0.25x pure,0.126867,0,0,0.413075,0,0.686335,0.189685
+cap 0.5x pure,0.101781,0,0,0.374052,0,0.877534,0.196313
+cap 1x pure,0.00013659,-1.72659e-05,-0.00084142,0.283792,0,1.15982,0.144173
+no-sell,0,-0.222263,-0.39508,0.23644,0.425146,1.4409,

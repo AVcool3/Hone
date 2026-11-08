@@ -1,0 +1,6 @@
+sweep,f_sell,f_cost25,f_over_res,f_fill_over_res,f_ce_model_neg,f_ce_true_neg,f_ce_true_neg_mkt,f_tiny,n
+beliefs,0,0,0,0,0,4801,0,20,26112
+core,0,0,0,0,0,0,0,0,12960
+liquidity,0,0,0,0,0,0,0,0,28224
+prices,0,20,0,0,0,1180,0,12,8640
+all,0,20,0,0,0,5981,0,32,75936

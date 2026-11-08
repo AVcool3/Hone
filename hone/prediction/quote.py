@@ -152,54 +152,72 @@ class Business:
 
 BUSINESSES = {
     b.key: b for b in [
-        # --- snow (sensitivities: findings/06 Vail filings, findings/09) ---
+        # --- snow (sensitivities: findings/06 Vail filings, findings/09,
+        #     findings/11 earnings calls; the per-key evidence is shown on quotes) ---
         Business("ski_resort", "Ski resort", elasticity_scale=1.0, basis=0.7, max_loss_frac=0.35,
                  margin=0.15, reserves_frac=0.10, pass_share=0.25,
-                 evidence="measured from Vail Resorts' filings, 22 seasons (findings/06)"),
-        Business("ski_instructor", "Ski instructor (personal income)", elasticity_scale=1.3, basis=0.6,
+                 evidence="measured from Vail Resorts' filings, 22 seasons (findings/06), and confirmed by its 2025/26 low-snow season: visits -13%, revenue -5% (findings/11)"),
+        # 1.3 -> 1.5: Vail's ski-school revenue fell 1.4-2.1x as much as resort
+        # revenue in low-snow winters (findings/11). Still low confidence: no
+        # data on an individual instructor's pay.
+        Business("ski_instructor", "Ski instructor (personal income)", elasticity_scale=1.5, basis=0.6,
                  max_loss_frac=0.7, margin=1.0, reserves_frac=0.25,
-                 evidence="an estimate: no published data on instructors' pay"),
-        Business("mountain_retail", "Mountain-town shop or restaurant", elasticity_scale=0.7, basis=0.5,
+                 evidence="an estimate from earnings calls: ski-school revenue falls 1.4-2.1x as much as resort revenue in a low-snow winter (findings/11); no data on individual pay"),
+        # 0.7 -> 1.3: passes cushion the resort, not the shops. Vail's retail,
+        # dining and lodging fell 1.2-2.2x as much as resort revenue (findings/11).
+        Business("mountain_retail", "Mountain-town shop or restaurant", elasticity_scale=1.3, basis=0.5,
                  max_loss_frac=0.5, margin=0.10, reserves_frac=0.10,
-                 evidence="an estimate scaled from ski resorts"),
+                 evidence="measured from earnings calls: Vail's retail, dining and lodging fell 1.2-2.2x as much as resort revenue, since passes don't cushion them (findings/11)"),
         Business("snow_removal", "Snow removal / plowing", elasticity_scale=1.0, basis=0.8,
-                 max_loss_frac=0.5, margin=0.20, reserves_frac=0.10, fixed_elasticity=1.0,
-                 variable_cost_share=0.5,
-                 evidence="measured: revenue moves ~1:1 with snowfall, -30% to -34% at 58-62% of normal (findings/09)"),
+                 # 1.0 -> 0.9 and 0.5 -> 0.6: BrightView's matched seasons give a
+                 # median of 0.92, salt volumes ~0.85; only 20-30% of a snow-revenue
+                 # change reached its EBITDA, as subcontractors are paid less (findings/11)
+                 max_loss_frac=0.5, margin=0.20, reserves_frac=0.10, fixed_elasticity=0.9,
+                 variable_cost_share=0.6,
+                 evidence="measured: revenue moves ~0.9x snowfall across 8 BrightView seasons and road-salt volumes (findings/09, findings/11)"),
         # --- rain, heat, frost, drought (findings/09 industry study) ---
         Business("outdoor_venue", "Outdoor venue / park / attraction (rainy summers)", elasticity_scale=1.0,
                  basis=0.5, max_loss_frac=0.3, margin=0.30, reserves_frac=0.10,
                  fixed_elasticity=0.35, peril="rain_summer", variable_cost_share=0.3,
                  pass_share=0.3, pass_damping=0.4,
-                 evidence="measured: Six Flags / Cedar Fair 2025, weather hit 18.6% of days and attendance fell 9% (findings/09)"),
+                 evidence="measured: Six Flags / Cedar Fair 2025, weather hit 18.6% of days and attendance fell 9%; revenue falls less than attendance (findings/09, findings/11)"),
         Business("construction", "Construction firm (rain-stopped days)", elasticity_scale=1.0,
                  basis=0.5, max_loss_frac=0.15, margin=0.08, reserves_frac=0.10,
-                 fixed_elasticity=0.2, peril="rain_work",
-                 evidence="an estimate: rain mostly delays work and backlog cushions it (findings/09)"),
+                 # 0.2 -> 0.15: a wet quarter costs 4-10% of its volume, but 30-70%
+                 # comes back within the season (findings/11, 9 companies)
+                 fixed_elasticity=0.15, peril="rain_work",
+                 evidence="measured from earnings calls, 9 companies: a wet quarter costs 4-10% of its volume, and much of it is made up later (findings/11)"),
         Business("trades_worker", "Tradesperson paid by the day (rain-stopped days, personal income)",
                  elasticity_scale=1.0, basis=0.6, max_loss_frac=0.2, margin=1.0, reserves_frac=0.25,
-                 fixed_elasticity=0.9, peril="rain_work",
-                 evidence="an estimate: a lost working day is lost pay (findings/09)"),
+                 # 0.9 -> 0.25. The old figure confused "a lost day is lost pay" with
+                 # "1% more rain days = 1% less pay". Days with 5+ mm of rain are only
+                 # 12-20% of Mar-Nov days, so 1% more of them costs ~0.15-0.25% of pay
+                 # (findings/11). No direct data on day-labour pay.
+                 fixed_elasticity=0.25, peril="rain_work",
+                 evidence="an estimate, worked out rather than measured: rain days are 12-20% of the working season, so each 1% more of them costs about 0.15-0.25% of pay if lost days aren't made up (findings/11)"),
         Business("landscaping", "Landscaping / outdoor services (rain-stopped days)", elasticity_scale=1.0,
                  basis=0.5, max_loss_frac=0.15, margin=0.12, reserves_frac=0.10,
-                 fixed_elasticity=0.15, peril="rain_work",
-                 evidence="an estimate: one company, one episode; demand is mostly deferred (findings/09)"),
+                 fixed_elasticity=0.12, peril="rain_work",
+                 evidence="an estimate from earnings calls (SiteOne, BrightView): contract mowing barely moves and most other work is deferred (findings/09, findings/11)"),
         Business("outdoor_worker", "Outdoor worker (extreme-heat days, personal income)", elasticity_scale=1.0,
                  basis=0.6, max_loss_frac=0.3, margin=1.0, reserves_frac=0.25,
-                 fixed_elasticity=0.3, peril="heat",
-                 evidence="an assumption: no data on heat-day pay losses yet"),
+                 fixed_elasticity=0.2, peril="heat",
+                 evidence="an assumption: earnings calls describe earlier shifts and heat breaks, but none put a number on lost pay (findings/11)"),
         Business("hvac", "HVAC contractor (cool summers)", elasticity_scale=1.0,
                  basis=0.6, max_loss_frac=0.25, margin=0.12, reserves_frac=0.10,
-                 fixed_elasticity=0.9, peril="cool_summer",
-                 evidence="measured: local HVAC revenue moves ~1:1 with cooling degree days (findings/09)"),
+                 # 0.9 -> 0.6: one region in one quarter moves 0.4-1.1x with cooling
+                 # degree days, but replacements are partly deferred, and the
+                 # Sun Belt barely reacts (findings/11)
+                 fixed_elasticity=0.6, peril="cool_summer",
+                 evidence="measured from earnings calls (Lennox, Frontdoor, Watsco): 0.4-1.1x cooling degree days by region and quarter, less over a year as replacements are put off (findings/09, findings/11)"),
         Business("orchard", "Orchard / fruit grower (late spring frost)", elasticity_scale=1.0,
                  basis=0.6, max_loss_frac=0.6, margin=0.15, reserves_frac=0.15,
                  fixed_elasticity=0.3, peril="spring_frost",
-                 evidence="an assumption: no data on frost losses yet"),
+                 evidence="an estimate from earnings calls: a bad freeze or frost year cost Alico 15% and Seeka 13% of revenue, about the most this setting allows (findings/11)"),
         Business("farm_crops", "Crop farm (dry growing season)", elasticity_scale=1.0,
                  basis=0.6, max_loss_frac=0.6, margin=0.15, reserves_frac=0.15,
                  fixed_elasticity=0.6, peril="drought", pass_damping=1.0,
-                 evidence="an estimate from the 2012 drought only: yield loss x (1 - ~40% price offset) (findings/09)"),
+                 evidence="an estimate from the 2012 US drought and the 2023 Argentina and 2024 Brazil droughts: yields fell 15-40%, and local droughts get less price offset than national ones (findings/09, findings/11)"),
     ]
 }
 

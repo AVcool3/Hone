@@ -16,6 +16,7 @@ and its lessons are pinned in `tests/test_hedge_scenarios.py`.
 | 08 | Jobs and local economy (BLS, via FRED) | One person's job vs. a national unemployment contract: basis 0–0.02 (it paid 33.5% of the time in layoff months vs. 32.5% overall). A state's job market vs. national: basis about 0.34; regional CPI vs. national: 0.61–0.66. A settled worker's yearly chance of displacement is about 2% (construction is higher). |
 | 09 | Industry sensitivity (filings, 9 industries) | Rideshare: a bad gas year costs 4–5% of gross pay. Realtors lose about 30% in a bad rate year, mortgage brokers about 55–60%. Recruiters' fees fell 39% while payrolls grew. Parks lose about 0.5% of attendance per 1% of days lost to weather. Snow removal moves 1:1 with snow. HVAC moves about 1:1 with hot weather. |
 | 10 | El Niño / PDO bad-winter forecast, 568 snow stations, 46 winters | Barely beats history across the West (+0.6% Brier skill; +2.2% forward in time). Strong only in the Southwest (+12%) and in La Niña winters. Quotes use it only where it passed both held-out tests, which today means just the Southwest. |
+| 11 | Earnings calls, 195 statements from 52 companies | Confirmed the ski-resort, snow-removal, venue, orchard and farm settings. Raised mountain shops (0.7× → 1.3× the resort) and instructors (1.3× → 1.5×). Lowered HVAC (0.9 → 0.6), construction (0.2 → 0.15) and day-paid tradespeople (0.9 → 0.25: the old figure overstated their risk about 4×). |
 
 ## Effect on the same 78,480 personas
 

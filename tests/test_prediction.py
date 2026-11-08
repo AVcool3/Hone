@@ -363,9 +363,9 @@ class TestPage:
         assert "PRODUCT_ORDER = ['stocks', 'crypto', 'prediction-markets']" in source("lib/products.js")
 
     def test_landing_copy_is_crawler_visible(self, html):
-        assert "Prediction Markets sizes event" in html  # in the no-JS fallback
+        assert "Join the waitlist" in html  # in the no-JS fallback
         home = source("marketing/Home.jsx")
-        assert "Your paycheck is already a <em>position.</em>" in home
+        assert "Your paycheck is already a position." in home
         assert "Isn’t this just gambling?" in home
         assert "Size a sample hedge" in home
 

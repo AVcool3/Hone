@@ -189,7 +189,7 @@ class TestPathRouting:
         c = TestClient(create_app())
         assert c.get("/crypto").status_code == 200
         assert c.get("/crypto/").status_code == 200
-        assert "disciplined position sizes" in c.get("/crypto").text
+        assert '<div id="root">' in c.get("/crypto").text  # the React app shell
 
     def test_asset_class_resolves_per_request(self, monkeypatch):
         monkeypatch.delenv("HONE_ASSET_CLASS", raising=False)

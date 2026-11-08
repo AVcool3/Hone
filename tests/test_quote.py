@@ -318,9 +318,9 @@ class TestRegions:
 
     def test_snow_removal_uses_its_own_sensitivity(self, weather):
         q = quote("snow_removal", "Snowtown", 500_000, today=TODAY, session=weather)
-        # revenue moves 1:1 with snow (measured), but subcontractor costs fall
-        # too, so half of the lost revenue is lost profit (findings/09)
-        assert q.elasticity == pytest.approx(0.5)
+        # revenue moves ~0.9x snowfall (measured), but subcontractor costs
+        # fall too, so only 40% of lost revenue is lost profit (findings/11)
+        assert q.elasticity == pytest.approx(0.9 * (1 - 0.6))
         assert any("offset by lower costs" in a for a in q.assumptions)
 
 

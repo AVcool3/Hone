@@ -81,9 +81,11 @@ class TestResponsive:
 class TestCopyMatchesTheProduct:
     def test_the_landing_page_describes_the_questionnaire_it_actually_ships(self):
         """The adaptive route asks eight questions; the page once said thirty."""
+        # The front page is now the waitlist page; the questionnaire is
+        # described on the product overview (Home.jsx).
         html = built_index()
         assert "30 quick either/or choices" not in html
-        assert "Eight either/or choices" in html
+        assert "Eight choices, one honest estimate." in source("marketing/Home.jsx")
 
     def test_no_dead_self_replacements(self):
         """`.replace("x", "x")` is a copy edit someone forgot to finish."""

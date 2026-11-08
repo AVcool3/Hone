@@ -178,8 +178,9 @@ History comes from the best source available, in this order:
 A 30-resort study (findings/07) found that the grid and on-site stations
 often disagree about which seasons were bad, so stations win whenever they
 exist. The snow sensitivities are measured from Vail's filings
-(findings/06). The non-snow sensitivities are still assumptions until
-findings/09 measures them, and the quotes say so.
+(findings/06). Every business's sensitivity was then checked against 195
+statements from 52 companies' earnings calls (findings/11). Each quote
+says whether its figure is measured, an estimate or an assumption.
 
 ### This winter's outlook (El Niño / PDO)
 

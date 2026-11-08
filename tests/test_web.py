@@ -16,21 +16,20 @@ class TestStatic:
         res = client.get("/")
         assert res.status_code == 200
         assert "Hone" in res.text
-        assert "questionnaire" in res.text.lower()
+        assert "waitlist" in res.text.lower()
 
     def test_landing_is_crawler_visible(self, client):
         """The value proposition must be readable without JavaScript."""
         html = client.get("/").text
-        assert "disciplined position sizes" in html
-        assert "Personalized Portfolio Optimization" in html  # title descriptor
+        assert "what fair protection" in html
+        assert "What a bad season would cost you" in html  # title
         assert '<meta name="description"' in html
         assert 'property="og:image"' in html
         assert 'property="og:title"' in html
-        # the no-JavaScript fallback explains the product and the trust question
-        assert "Turn your investment views into a portfolio you can explain." in html
-        assert "How it works" in html
-        assert "Three products, one method" in html
-        assert "Is this real money?" in html
+        # the no-JavaScript fallback explains the product and points to the waitlist
+        assert "Know what a bad season would cost you." in html
+        assert "Built on records, not guesses" in html
+        assert 'href="/#waitlist"' in html
 
     def test_favicon_assets_served_and_linked(self, client):
         html = client.get("/").text

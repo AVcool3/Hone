@@ -145,3 +145,34 @@ risk-seeking) together with what the model must do for them. Any change to
 the engine has to keep passing it. To teach the model something new, add a
 scenario that names the person, states the expected behaviour, and cites
 the study it came from.
+
+
+## Pricing protection directly ("Price my risk")
+
+`hone/prediction/quote.py` prices protection from a minimal description:
+business type, place and revenue. `hone/prediction/perils.py` defines what
+it can price:
+
+| Peril | Measured | Bad when | Businesses |
+|---|---|---|---|
+| snow | snowfall Nov–Apr (or peak snow water) | too little | ski resorts, instructors, mountain shops, snow removal |
+| rain_summer | rainy days, May–Sep | too many | outdoor venues and events |
+| rain_work | days with 5+ mm of rain, Mar–Nov | too many | construction, landscaping |
+| heat | days over 32°C, Jun–Aug | too many | outdoor workers |
+| cool_summer | days over 30°C, Jun–Aug | too few | HVAC contractors |
+| spring_frost | nights ≤ −2°C, Apr–May | too many | orchards |
+| drought | rainfall, May–Aug | too little | crop farms |
+
+History comes from the best source available, in this order:
+
+1. A USDA SNOTEL station on the mountain (snow only, western US).
+2. The nearest NOAA station with a long and *current* record of that
+   measurement. Some stations are "active" while one of their measurements
+   stopped years ago; those are skipped.
+3. The ERA5 grid, which is available everywhere.
+
+A 30-resort study (findings/07) found that the grid and on-site stations
+often disagree about which seasons were bad, so stations win whenever they
+exist. The snow sensitivities are measured from Vail's filings
+(findings/06). The non-snow sensitivities are still assumptions until
+findings/09 measures them, and the quotes say so.

@@ -40,9 +40,16 @@ class FakeWeather:
         self.places, self.seasons, self.calls = places, seasons, 0
         # SNOTEL: station records and peak snow water per winter, by triplet
         self.stations, self.swe = stations or [], swe or {}
+        # NOAA: search results and daily rows by station id (empty by default)
+        self.noaa_stations, self.noaa_data = [], {}
 
     def get(self, url, params=None, timeout=None):
         self.calls += 1
+        if "ncei.noaa.gov" in url:
+            # NOAA stations: none here unless a test supplies them
+            if "/search/" in url:
+                return _Resp({"results": self.noaa_stations})
+            return _Resp(self.noaa_data.get(params["stations"], []))
         if "awdbRestApi" in url:
             if url.endswith("/stations"):
                 return _Resp(self.stations)
@@ -60,6 +67,24 @@ class FakeWeather:
                 for n, (la, lo) in self.places.items() if params["name"].lower() in n.lower()
             ]
             return _Resp({"results": hits} if hits else {})
+        var = params.get("daily", "snowfall_sum")
+        if var != "snowfall_sum":
+            # Rain/temperature for the non-snow perils: plausible daily
+            # weather with real year-to-year variation, seeded so it's fixed.
+            days = pd.date_range(params["start_date"], params["end_date"])
+            rng = np.random.default_rng(abs(hash((round(params["latitude"], 2), var))) % 2**32)
+            wet_year = {y: rng.uniform(0.2, 0.6) for y in range(days.year.min(), days.year.max() + 1)}
+            hot_year = {y: rng.normal(0, 2.5) for y in wet_year}
+            doy = days.dayofyear.to_numpy()
+            seasonal = 12 - 14 * np.cos(2 * np.pi * (doy - 15) / 365)            # deg C, cold Jan, hot Jul
+            if var == "precipitation_sum":
+                p_wet = np.array([wet_year[y] for y in days.year])
+                vals = np.where(rng.random(len(days)) < p_wet, rng.exponential(8, len(days)), 0.0)
+            elif var == "temperature_2m_max":
+                vals = seasonal + 6 + np.array([hot_year[y] for y in days.year]) + rng.normal(0, 4, len(days))
+            else:  # temperature_2m_min
+                vals = seasonal - 6 + np.array([hot_year[y] for y in days.year]) + rng.normal(0, 4, len(days))
+            return _Resp({"daily": {"time": [d.strftime("%Y-%m-%d") for d in days], var: np.round(vals, 2).tolist()}})
         key = min(self.seasons, key=lambda k: abs(k[0] - params["latitude"]) + abs(k[1] - params["longitude"]))
         daily = _daily_for(self.seasons[key])
         daily = daily[(daily.index >= params["start_date"]) & (daily.index <= params["end_date"])]
@@ -328,7 +353,7 @@ class TestStations:
         assert q.index_source.startswith("ERA5")
 
     def test_station_index_required_but_missing_is_explained(self, weather):
-        with pytest.raises(ValueError, match="No snow station"):
+        with pytest.raises(ValueError, match="No weather station"):
             quote("ski_resort", "Snowtown", 4_000_000, index="station", today=TODAY, session=weather)
 
 
@@ -348,3 +373,79 @@ class TestResortEvidence:
         assert q.avg_shortfall == pytest.approx(0.85, abs=0.01)
         assert q.loss == pytest.approx(1_000_000 * 0.55 * 0.5, rel=0.01)   # counted as 50%
         assert q.loss <= 0.35 * 1_000_000
+
+
+# ------------------------------------------------------------------ perils
+def _noaa_station(sid, lat, lon, start="1950-01-01", end="2026-11-01"):
+    return {"stations": [{"id": sid, "name": f"{sid} TEST, VT US"}], "location": {"coordinates": [lon, lat]},
+            "startDate": f"{start}T00:00:00", "endDate": f"{end}T00:00:00"}
+
+
+def _rain_rows(sid, rainy_days_by_year, last_year=2025):
+    """Daily PRCP rows giving each year's May-Sep the requested rainy days."""
+    rows = []
+    for year in range(1980, last_year + 1):
+        days = pd.date_range(f"{year}-05-01", f"{year}-09-30")
+        wet = set(days[:: max(1, len(days) // max(rainy_days_by_year(year), 1))][: rainy_days_by_year(year)])
+        for d in days:
+            rows.append({"DATE": d.strftime("%Y-%m-%d"), "STATION": sid, "PRCP": "6.0" if d in wet else "0.0"})
+    return rows
+
+
+class TestPerils:
+    """Beyond snow: rain, heat, frost, drought (perils.py), from NOAA
+    stations where there's a long, current record."""
+
+    def _venue_weather(self, stations, data):
+        w = FakeWeather({"Fairtown": (40.0, -83.0)}, {(40.0, -83.0): _steady()})
+        w.noaa_stations, w.noaa_data = stations, data
+        return w
+
+    def test_outdoor_venue_priced_from_a_noaa_station(self):
+        # 40 rainy days normally; every 4th summer is a washout with 60.
+        rows = _rain_rows("USW1", lambda y: 60 if y % 4 == 0 else 40)
+        w = self._venue_weather([_noaa_station("USW1", 40.05, -83.0)], {"USW1": rows})
+        q = quote("outdoor_venue", "Fairtown", 2_000_000, today=TODAY, session=w)
+        assert "NOAA station" in q.index_source and q.unit == "rainy days"
+        assert q.normal_cm == pytest.approx(40, abs=1)
+        assert q.trigger_cm == pytest.approx(52, abs=1)                # 130% of normal
+        assert q.probability.historical == pytest.approx(0.25, abs=0.03)
+        assert all(r.bad == (r.cm > q.trigger_cm) for r in q.history)  # too MANY is bad
+        assert q.condition.startswith("has 53 or more rainy days") and "May–Sep" in q.condition
+        assert any("settle on this station" in a for a in q.assumptions)
+
+    def test_a_station_whose_record_stopped_is_skipped(self):
+        """Mount Mansfield's snowfall stops in 2017 though the station is
+        'active' — a stale record must not be priced from."""
+        stale = _rain_rows("OLD", lambda y: 40, last_year=2015)
+        fresh = _rain_rows("NEW", lambda y: 60 if y % 4 == 0 else 40)
+        w = self._venue_weather([_noaa_station("OLD", 40.01, -83.0), _noaa_station("NEW", 40.2, -83.0)],
+                                {"OLD": stale, "NEW": fresh})
+        q = quote("outdoor_venue", "Fairtown", 2_000_000, today=TODAY, session=w)
+        assert "New Test" in q.index_source and "Old Test" not in q.index_source
+
+    def test_no_station_falls_back_to_the_grid(self, weather):
+        q = quote("construction", "Snowtown", 5_000_000, today=TODAY, session=weather)
+        assert q.index_source.startswith("ERA5") and q.peril == "rain_work"
+
+    def test_every_new_business_type_quotes_with_plain_english(self, weather):
+        for key in ["outdoor_venue", "construction", "landscaping", "outdoor_worker", "hvac", "orchard", "farm_crops"]:
+            q = quote(key, "Snowtown", 1_000_000, today=TODAY, session=weather)
+            assert q.condition and q.season_label and q.plan["contracts"] >= 0, key
+            assert q.peril_label
+
+    def test_rare_frost_still_prices(self):
+        """Where frost is normally zero, any frost night is the bad season."""
+        from hone.prediction.quote import bad_season_probability
+        years = list(range(1980, 2026))
+        frost = pd.Series([3.0 if y % 8 == 0 else 0.0 for y in years], index=years)
+        prob, _ = bad_season_probability(frost, 0.5, 2026, high_is_bad=True)
+        assert prob.historical == pytest.approx(6 / 46)
+
+    def test_peril_wording(self):
+        from hone.prediction.perils import PERILS
+        assert PERILS["snow"].condition(140, "cm of snowfall") == "gets less than 140 cm of snowfall (Nov–Apr)"
+        assert PERILS["heat"].condition(12, "days over 32°C") == "has 13 or more days over 32°C (Jun–Aug)"
+        assert PERILS["cool_summer"].condition(8, "days over 30°C") == "has 7 or fewer days over 30°C (Jun–Aug)"
+        # frost normally zero: trigger 0.5 means any frost night
+        assert PERILS["spring_frost"].condition(0.5).startswith("has 1 or more nights")

@@ -60,7 +60,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .climate import ClimateError, Place, geocode, nearest_snotel, snotel_peak_swe, snowfall_history
+from .climate import ClimateError, Place, geocode, snowfall_history
+from .perils import PERILS, history as peril_history
 from .hedge import BASIS_SHRINK, IncomeExposure, hedge_income
 
 
@@ -128,6 +129,8 @@ class Business:
     fixed_elasticity: float | None = None
     #: default share of revenue from passes sold before the season
     pass_share: float = 0.0
+    #: which weather risk drives this business (see perils.py)
+    peril: str = "snow"
     season: tuple[int, int] = (11, 4)  # Nov-Apr
 
     def elasticity_for(self, region: str) -> float:
@@ -148,6 +151,29 @@ BUSINESSES = {
                  max_loss_frac=0.5, margin=0.10, reserves_frac=0.10),
         Business("snow_removal", "Snow removal / plowing", elasticity_scale=1.0, basis=0.8,
                  max_loss_frac=0.8, margin=0.20, reserves_frac=0.10, fixed_elasticity=1.0),
+        # Beyond snow (perils.py). Sensitivities are ASSUMPTIONS until
+        # findings/09_industry_sensitivity.md measures them; quotes say so.
+        Business("outdoor_venue", "Outdoor venue / events (rainy summers)", elasticity_scale=1.0,
+                 basis=0.6, max_loss_frac=0.4, margin=0.15, reserves_frac=0.10,
+                 fixed_elasticity=0.25, peril="rain_summer"),
+        Business("construction", "Construction contractor (rain-stopped days)", elasticity_scale=1.0,
+                 basis=0.5, max_loss_frac=0.25, margin=0.08, reserves_frac=0.10,
+                 fixed_elasticity=0.15, peril="rain_work"),
+        Business("landscaping", "Landscaping / outdoor services (rain-stopped days)", elasticity_scale=1.0,
+                 basis=0.5, max_loss_frac=0.3, margin=0.12, reserves_frac=0.10,
+                 fixed_elasticity=0.2, peril="rain_work"),
+        Business("outdoor_worker", "Outdoor worker (extreme-heat days, personal income)", elasticity_scale=1.0,
+                 basis=0.6, max_loss_frac=0.3, margin=1.0, reserves_frac=0.25,
+                 fixed_elasticity=0.3, peril="heat"),
+        Business("hvac", "HVAC contractor (cool summers)", elasticity_scale=1.0,
+                 basis=0.6, max_loss_frac=0.3, margin=0.10, reserves_frac=0.10,
+                 fixed_elasticity=0.3, peril="cool_summer"),
+        Business("orchard", "Orchard / fruit grower (late spring frost)", elasticity_scale=1.0,
+                 basis=0.6, max_loss_frac=0.6, margin=0.15, reserves_frac=0.15,
+                 fixed_elasticity=0.3, peril="spring_frost"),
+        Business("farm_crops", "Crop farm (dry growing season)", elasticity_scale=1.0,
+                 basis=0.6, max_loss_frac=0.6, margin=0.15, reserves_frac=0.15,
+                 fixed_elasticity=0.6, peril="drought"),
     ]
 }
 
@@ -247,6 +273,12 @@ class Quote:
     #: normal_cm and trigger_cm are in this unit (the names are historical).
     unit: str = "cm of snowfall"
     index_source: str = "ERA5 reanalysis snowfall (~25 km grid)"
+    #: the weather risk priced, and plain English for its bad season
+    peril: str = "snow"
+    peril_label: str = "Low snowfall"
+    condition: str = ""            # "gets less than 140 cm of snowfall (Nov–Apr)"
+    season_label: str = "Nov–Apr"
+    worse_word: str = "less snow"  # for "x% ___ than normal"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -254,9 +286,10 @@ class Quote:
 
 # ----------------------------------------------------------------- the math
 def bad_season_probability(
-    totals: pd.Series, trigger_cm: float, current_season: int
+    totals: pd.Series, trigger_cm: float, current_season: int, high_is_bad: bool = False
 ) -> tuple[Probability, np.ndarray]:
-    """Chance next season falls below ``trigger_cm``, and the sample used.
+    """Chance next season is bad — below ``trigger_cm``, or above it when
+    ``high_is_bad`` (rainy days, heat, frost) — and the sample used.
 
     Returns the probability summary and the (possibly trend-adjusted)
     season totals it was computed from.
@@ -266,7 +299,8 @@ def bad_season_probability(
     n = len(x)
     if n < 10:
         raise ValueError("need at least 10 seasons of history to price this")
-    historical = float(np.mean(x < trigger_cm))
+    bad = (lambda v: v > trigger_cm) if high_is_bad else (lambda v: v < trigger_cm)
+    historical = float(np.mean(bad(x)))
     fit = stats.linregress(years, x)
     trend_used = bool(fit.pvalue < TREND_P_VALUE)
     if trend_used:
@@ -276,7 +310,7 @@ def bad_season_probability(
         sample = np.maximum(sample, 0.0)
     else:
         sample = x
-    k = int(np.sum(sample < trigger_cm))
+    k = int(np.sum(bad(sample)))
     # Jeffreys Beta(k + 1/2, n - k + 1/2) posterior: honest about small n.
     post = stats.beta(k + 0.5, n - k + 0.5)
     prob = Probability(
@@ -289,14 +323,24 @@ def bad_season_probability(
 
 def estimated_loss(
     sample: np.ndarray, normal_cm: float, trigger_cm: float, revenue: float, biz: Business,
-    elasticity: float,
+    elasticity: float, high_is_bad: bool = False,
 ) -> tuple[float, float]:
     """(revenue lost in a typical bad season, average % shortfall).
 
     Each bad season's shortfall counts up to MAX_SHORTFALL_COUNTED, then is
     multiplied by the (pass-adjusted) elasticity; capped at max_loss_frac.
     """
-    """(revenue lost in a typical bad season, average % shortfall)."""
+    if high_is_bad:
+        # Too much of something (rainy days, heat, frost): the excess over
+        # normal, relative to normal — at least 1 unit, so a place where
+        # frost is normally zero still gets a sensible scale.
+        bad = sample[sample > trigger_cm]
+        if len(bad) == 0:
+            return 0.0, 0.0
+        raw = np.clip((bad - normal_cm) / max(normal_cm, 1.0), 0.0, 1.0)
+        shortfall = float(np.mean(raw))
+        counted = float(np.mean(np.minimum(raw, MAX_SHORTFALL_COUNTED)))
+        return float(min(revenue * elasticity * counted, revenue * biz.max_loss_frac)), shortfall
     bad = sample[sample < trigger_cm]
     if len(bad) == 0 or normal_cm <= 0:
         return 0.0, 0.0
@@ -376,45 +420,39 @@ def quote(
         raise ValueError("basis correlation must be between 0 and 1")
 
     region = region_of(place.latitude, place.longitude)
+    peril = PERILS[biz.peril]
     pass_share = biz.pass_share if pass_share is None else float(pass_share)
     if not 0.0 <= pass_share <= 1.0:
         raise ValueError("pass share must be between 0% and 100%")
     elasticity = biz.elasticity_for(region) * (1.0 - PASS_DAMPING * pass_share)
     basis = biz.basis_for(region) if basis is None else float(basis)
-    # The index: a mountain snow station when there's a good one nearby,
-    # otherwise the reanalysis grid. ("era5" forces the grid.)
-    if index not in ("auto", "era5", "station"):
-        raise ValueError("index must be 'auto', 'era5' or 'station'")
-    station = None
-    if index in ("auto", "station") and region != "other":
-        try:
-            station = nearest_snotel(place, today=today, session=session)
-        except ClimateError:
-            station = None
-    totals = None
-    if station is not None:
-        swe = snotel_peak_swe(station, today=today, session=session)
-        if len(swe) >= 10:
-            totals = swe
-            unit, source = "in. of snow water (season peak)", station.label
-    if totals is None:
-        if index == "station":
-            raise ValueError("No snow station with a long enough record near this place.")
-        totals = snowfall_history(place, *biz.season, today=today, session=session)
-        unit, source = "cm of snowfall", "ERA5 reanalysis snowfall (~25 km grid)"
+
+    # History from the best source: a mountain snow station, a NOAA station,
+    # or the reanalysis grid (perils.history; "era5" forces the grid).
+    hist = peril_history(peril, place, index=index, today=today, session=session)
+    totals, unit, source = hist.values, hist.unit, hist.source
     if len(totals) < 10:
-        raise ValueError("Not enough snowfall history at this location to price a season.")
+        raise ValueError("Not enough weather history at this location to price a season.")
     normal = float(totals.median())
+    high = peril.high_is_bad
     if trigger_percentile is not None:
-        trigger = float(totals.quantile(trigger_percentile))
+        trigger = float(totals.quantile(1 - trigger_percentile if high else trigger_percentile))
         rule = f"worst {trigger_percentile:.0%} of seasons"
+    elif high:
+        # Mirror image of "below 70% of normal": above 130%. At least half a
+        # unit above normal, so if frost is normally zero, any frost counts.
+        trigger = max(normal * (2.0 - float(trigger_fraction)), normal + 0.5)
+        rule = f"{2.0 - float(trigger_fraction):.0%} of normal"
     else:
+        if normal <= 0:
+            raise ValueError(f"{peril.label} can't be priced here: the normal season has none.")
         trigger = normal * float(trigger_fraction)
         rule = f"{trigger_fraction:.0%} of normal"
     # The season about to start (or under way) is labelled by its start year.
-    current = today.year if today.month >= biz.season[0] else today.year - 1
-    prob, sample = bad_season_probability(totals, trigger, current + (0 if today.month >= biz.season[0] else 1))
-    loss, shortfall = estimated_loss(sample, normal, trigger, revenue, biz, elasticity)
+    first = peril.months[0]
+    current = today.year if today.month >= first else today.year - 1
+    prob, sample = bad_season_probability(totals, trigger, current + (0 if today.month >= first else 1), high)
+    loss, shortfall = estimated_loss(sample, normal, trigger, revenue, biz, elasticity, high)
 
     p = float(np.clip(prob.estimate, 0.02, 0.95))
     loaded = float(min(p * (1.0 + loading), 0.97))
@@ -450,35 +488,40 @@ def quote(
             f"correlation {basis:.1f}, so a bad season could come without a payout — and then "
             "every dollar spent on it is a dollar less to get through. That's why Hone "
             f"suggests ${contracts:,.0f}. A contract settled closer to your own conditions "
-            "(e.g. your resort's own snow station) would let you protect more."
+            f"({'your resort’s own snow station' if peril.key == 'snow' else 'a weather station at your own site'}) would let you protect more."
         )
     # Liquidity is irrelevant when Hone sets the price itself.
-    warnings += [w for w in plan.warnings if "couldn't check how many" not in w]
-    market = nearest_market(place, totals, biz, today, session)
+    # (the engine's general basis-risk note is dropped when the more specific
+    # one above was given)
+    specific = any("always paid in your bad seasons" in w for w in warnings)
+    warnings += [w for w in plan.warnings if "couldn't check how many" not in w
+                 and not (specific and "Clarke 2016" in w)]
+    # Kalshi has snow markets but no rain/heat/frost ones near most places.
+    market = nearest_market(place, totals, biz, today, session) if peril.key == "snow" else None
 
     assumptions = [
         f"Priced from {source}.",
-        f"A bad season is below {trigger:,.1f} {unit} here ({rule}); {prob.historical:.0%} of the {prob.n_seasons} seasons since {totals.index.min()} were that bad.",
-        f"Revenue falls {elasticity:.2f}% for every 1% below normal (shortfalls beyond {MAX_SHORTFALL_COUNTED:.0%} count as {MAX_SHORTFALL_COUNTED:.0%}), capped at {biz.max_loss_frac:.0%} of revenue — "
+        f"A bad season {peril.condition(trigger, unit)} here ({rule}); {prob.historical:.0%} of the {prob.n_seasons} seasons since {totals.index.min()} were that bad.",
+        f"Revenue falls {elasticity:.2f}% for every 1% {'above' if high else 'below'} normal (shortfalls beyond {MAX_SHORTFALL_COUNTED:.0%} count as {MAX_SHORTFALL_COUNTED:.0%}), capped at {biz.max_loss_frac:.0%} of revenue — "
         + (f"{REGION_EVIDENCE.get(region, 'an assumption')} ({region})" if biz.fixed_elasticity is None and biz.elasticity_scale == 1.0
            else "set directly for this business" if biz.fixed_elasticity is not None
            else f"{biz.elasticity_scale:g}x the ski-resort figure for this region ({region}); no published data exists for this business type, so treat it as an estimate")
         + (f", reduced because {pass_share:.0%} of revenue is season passes sold before the snow is known" if pass_share > 0 else "")
         + ".",
-        f"A contract on this place's snowfall tracks your revenue with correlation {basis:.1f} (snowmaking and the economy matter too).",
+        f"A contract on this place's {peril.label.lower()} tracks your revenue with correlation {basis:.1f} (other things matter too).",
         f"Cushion for a bad season: ${reserves:,.0f} cash reserves plus a normal season's profit of ${revenue * margin:,.0f} ({margin:.0%} of ${revenue:,.0f} revenue); risk aversion {gamma:g}.",
-        ("A contract priced this way would settle on this station's measurement." if station is not None and unit.startswith("in.")
-         else "ERA5 is a ~25 km grid: it understates mountain snow and can disagree with the mountain about which seasons were bad, so only comparisons within this place's own history are used. A real contract would settle on a named weather station."),
+        ("A contract priced this way would settle on this station's measurement." if hist.settles_on_station
+         else "ERA5 is a ~25 km grid: it smooths local extremes and can disagree with local stations about which seasons were bad, so only comparisons within this place's own history are used. A real contract would settle on a named weather station."),
     ]
     if prob.trend_used:
         assumptions.append(
-            f"Snowfall here has a trend of {prob.trend_cm_per_decade:+,.0f} cm per decade, so past seasons were adjusted to today's level."
+            f"{peril.label} here has a trend of {prob.trend_cm_per_decade:+,.1f} {unit} per decade, so past seasons were adjusted to today's level."
         )
 
     return Quote(
         place={"label": place.label, "latitude": place.latitude, "longitude": place.longitude, "elevation": place.elevation},
         business=business, business_label=biz.label, revenue=float(revenue), reserves=float(reserves), gamma=gamma,
-        history=[SeasonRow(int(y), float(v), bool(v < trigger)) for y, v in totals.items()],
+        history=[SeasonRow(int(y), float(v), bool(v > trigger if high else v < trigger)) for y, v in totals.items()],
         normal_cm=normal, trigger_cm=trigger, trigger_rule=rule, wealth=float(wealth),
         probability=prob, avg_shortfall=shortfall, loss=loss, elasticity=elasticity, basis=basis,
         fair_price=p, loaded_price=loaded, loading=loading,
@@ -487,4 +530,6 @@ def quote(
         protection_if_perfect=float(max(perfect.contracts, 0)),
         assumptions=assumptions, warnings=warnings,
         unit=unit, index_source=source,
+        peril=peril.key, peril_label=peril.label, condition=peril.condition(trigger, unit),
+        season_label=peril.season_label, worse_word=peril.worse_word,
     )

@@ -2170,11 +2170,13 @@ def create_app() -> FastAPI:
     @app.get("/api/predict/businesses")
     def predict_businesses() -> list[dict]:
         """Business types the quote engine knows, with their default assumptions."""
+        from ..prediction.perils import PERILS
         from ..prediction.quote import BUSINESSES
 
         return [
             {"key": b.key, "label": b.label, "elasticity_scale": b.elasticity_scale, "basis": b.basis,
-             "pass_share": b.pass_share,
+             "pass_share": b.pass_share, "peril": b.peril, "peril_label": PERILS[b.peril].label,
+             "high_is_bad": PERILS[b.peril].high_is_bad, "season": PERILS[b.peril].season_label,
              "margin": b.margin, "reserves_frac": b.reserves_frac}
             for b in BUSINESSES.values()
         ]

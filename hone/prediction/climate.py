@@ -280,3 +280,203 @@ def snotel_peak_swe(station: Station, today: date | None = None, session: Any | 
     with _LOCK:
         _CACHE[key] = out
     return out
+
+
+# ------------------------------------------------------------ NOAA stations
+#
+# NOAA's Global Historical Climatology Network (GHCN-Daily): tens of
+# thousands of stations worldwide, many with daily snowfall, rain and
+# temperature back decades — including mountain observers SNOTEL doesn't
+# cover (e.g. Mount Mansfield, Stowe's mountain, since 1954). Public, no key.
+NOAA_SEARCH = "https://www.ncei.noaa.gov/access/services/search/v1/data"
+NOAA_DATA = "https://www.ncei.noaa.gov/access/services/data/v1"
+#: Use a station only if it's this close and covers this many years.
+NOAA_MAX_KM = 40.0
+NOAA_MIN_YEARS = 25
+
+#: Open-Meteo (ERA5) daily variable for each NOAA element, and the unit
+#: both report in (NOAA is requested in metric).
+ERA5_VARIABLE = {
+    "SNOW": ("snowfall_sum", 10.0),        # Open-Meteo cm -> mm to match NOAA
+    "PRCP": ("precipitation_sum", 1.0),    # mm
+    "TMAX": ("temperature_2m_max", 1.0),   # degrees C
+    "TMIN": ("temperature_2m_min", 1.0),   # degrees C
+}
+
+
+@dataclass(frozen=True)
+class NoaaStation:
+    id: str               # e.g. "USC00435416"
+    name: str
+    latitude: float
+    longitude: float
+    start_year: int
+    end_year: int
+    distance_km: float = 0.0
+
+    @property
+    def label(self) -> str:
+        name = self.name.title().replace(", Us", "").replace(" Us", "")
+        return f"NOAA station {name} ({self.distance_km:.0f} km away, since {self.start_year})"
+
+
+def noaa_candidates(
+    place: Place, element: str, today: date | None = None, session: Any | None = None,
+    max_km: float = NOAA_MAX_KM, min_years: int = NOAA_MIN_YEARS,
+) -> list[NoaaStation]:
+    """Active NOAA stations near ``place`` that record ``element`` (SNOW,
+    PRCP, TMAX, TMIN) over at least ``min_years``, nearest first."""
+    import math
+
+    today = today or date.today()
+    dlat = max_km / 111.0
+    dlon = max_km / (111.0 * max(math.cos(math.radians(place.latitude)), 0.1))
+    bbox = f"{place.latitude + dlat:.4f},{place.longitude - dlon:.4f},{place.latitude - dlat:.4f},{place.longitude + dlon:.4f}"
+    data = _get_json(NOAA_SEARCH, {
+        "dataset": "daily-summaries", "bbox": bbox, "dataTypes": element,
+        "startDate": f"{FIRST_SEASON}-01-01T00:00:00", "endDate": f"{today.isoformat()}T00:00:00",
+        "limit": 200,
+    }, session, "Couldn't search NOAA stations")
+    out = []
+    for r in data.get("results") or []:
+        try:
+            st = (r.get("stations") or [{}])[0]
+            lon, lat = r["location"]["coordinates"]
+            start, end = int(r["startDate"][:4]), int(r["endDate"][:4])
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        d = _km(place.latitude, place.longitude, float(lat), float(lon))
+        if d <= max_km and end >= today.year - 1 and end - start >= min_years:
+            out.append(NoaaStation(st.get("id", ""), st.get("name", "station"), float(lat), float(lon), start, end, d))
+    return sorted(out, key=lambda x: x.distance_km)
+
+
+def nearest_noaa(place: Place, element: str, today: date | None = None,
+                 session: Any | None = None, **kw) -> NoaaStation | None:
+    """The closest candidate (see noaa_candidates), without checking its data."""
+    c = noaa_candidates(place, element, today, session, **kw)
+    return c[0] if c else None
+
+
+def noaa_seasonal(
+    place: Place, element: str, months: tuple[int, int], how: str, threshold: float | None = None,
+    today: date | None = None, session: Any | None = None, min_seasons: int = 20, tries: int = 4,
+) -> tuple[NoaaStation, pd.Series] | None:
+    """The nearest station whose record of ``element`` is long AND current.
+
+    A station can be "active" while one of its measurements stopped years
+    ago (Mount Mansfield's snowfall ends in 2017), so each candidate's
+    actual series is checked: it must reach within two seasons of today
+    and give at least ``min_seasons`` complete seasons. Up to ``tries``
+    stations are tried, nearest first.
+    """
+    today = today or date.today()
+    for st in noaa_candidates(place, element, today, session)[:tries]:
+        try:
+            daily = noaa_daily(st, element, today, session)
+        except ClimateError:
+            continue
+        if daily.empty or daily.index.max().year < today.year - 2:
+            continue
+        idx = seasonal_index(daily, months, how, threshold, today)
+        if len(idx) >= min_seasons and idx.index.max() >= today.year - 3:
+            return st, idx
+    return None
+
+
+def noaa_daily(station: NoaaStation, element: str, today: date | None = None,
+               session: Any | None = None) -> pd.Series:
+    """Daily values of ``element`` at the station (metric: mm, degrees C)."""
+    today = today or date.today()
+    key = ("noaa", station.id, element, today.isoformat())
+    with _LOCK:
+        if key in _CACHE:
+            return _CACHE[key]
+    rows = _get_json(NOAA_DATA, {
+        "dataset": "daily-summaries", "stations": station.id, "dataTypes": element,
+        "startDate": f"{FIRST_SEASON}-01-01", "endDate": today.isoformat(),
+        "format": "json", "units": "metric",
+    }, session, "Couldn't fetch NOAA station history")
+    vals = {}
+    for r in rows or []:
+        v = r.get(element)
+        try:
+            vals[pd.Timestamp(r["DATE"])] = float(str(v).strip())
+        except (KeyError, TypeError, ValueError):
+            continue
+    s = pd.Series(vals, dtype=float, name=element).sort_index()
+    with _LOCK:
+        _CACHE[key] = s
+    return s
+
+
+def era5_daily(place: Place, element: str, today: date | None = None,
+               session: Any | None = None) -> pd.Series:
+    """The ERA5 grid's daily ``element`` at ``place``, in NOAA's units."""
+    today = today or date.today()
+    var, scale = ERA5_VARIABLE[element]
+    key = ("era5", round(place.latitude, 3), round(place.longitude, 3), var, today.isoformat())
+    with _LOCK:
+        if key in _CACHE:
+            return _CACHE[key]
+    end = date.fromordinal(today.toordinal() - 7)
+    data = _get_json(ARCHIVE_URL, {
+        "latitude": place.latitude, "longitude": place.longitude,
+        "start_date": f"{FIRST_SEASON}-01-01", "end_date": end.isoformat(),
+        "daily": var, "timezone": "auto", "models": "era5",
+    }, session, "Couldn't fetch weather history")
+    try:
+        daily = data["daily"]
+        s = pd.Series([float(x) * scale if x is not None else float("nan") for x in daily[var]],
+                      index=pd.to_datetime(daily["time"]), name=element)
+    except (KeyError, TypeError) as exc:
+        raise ClimateError(f"Weather history came back without {var}") from exc
+    with _LOCK:
+        _CACHE[key] = s
+    return s
+
+
+def seasonal_index(
+    daily: pd.Series, months: tuple[int, int], how: str, threshold: float | None = None,
+    today: date | None = None, min_coverage: float = 0.85,
+) -> pd.Series:
+    """Collapse a daily series into one number per season.
+
+    months  — (first, last) month, e.g. (11, 4) for Nov-Apr or (5, 9) for May-Sep
+    how     — "sum" (e.g. total snowfall), "count_above" / "count_below"
+              (days at or beyond ``threshold``: rainy days, hot days, frosts),
+              or "mean"
+    Seasons are labelled by the year they start. A season counts only if
+    it's over and at least ``min_coverage`` of its days were reported —
+    volunteer stations miss days, and a gap must not look like a dry spell.
+    """
+    today = today or date.today()
+    if daily.empty:
+        return pd.Series(dtype=float)
+    first, last = months
+    wraps = first > last
+    m = daily.index.month
+    inside = ((m >= first) | (m <= last)) if wraps else ((m >= first) & (m <= last))
+    s = daily[inside]
+    label = s.index.year - ((s.index.month <= last).astype(int) if wraps else 0)
+    out = {}
+    for year, vals in s.groupby(label):
+        start, end = _season_bounds(int(year), first, last)
+        if end >= today:
+            continue                                   # not over yet
+        expected = (end - start).days + 1
+        present = vals.dropna()
+        if len(present) < min_coverage * expected:
+            continue
+        if how == "sum":
+            v = float(present.sum()) * expected / len(present)   # scale up for missing days
+        elif how == "count_above":
+            v = float((present >= threshold).sum()) * expected / len(present)
+        elif how == "count_below":
+            v = float((present <= threshold).sum()) * expected / len(present)
+        elif how == "mean":
+            v = float(present.mean())
+        else:
+            raise ValueError(f"unknown aggregation {how!r}")
+        out[int(year)] = v
+    return pd.Series(out, dtype=float).sort_index()

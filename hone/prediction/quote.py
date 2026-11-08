@@ -131,6 +131,14 @@ class Business:
     pass_share: float = 0.0
     #: which weather risk drives this business (see perils.py)
     peril: str = "snow"
+    #: share of lost revenue that ISN'T lost profit, because some costs fall
+    #: too (e.g. a snow-removal firm pays subcontractors less in a dry year)
+    variable_cost_share: float = 0.0
+    #: how much revenue that's already locked in (season passes, contracts,
+    #: crop insurance) softens a bad season: sensitivity x (1 - damping x share)
+    pass_damping: float = 0.7
+    #: where the sensitivity comes from — shown on every quote
+    evidence: str = "an assumption"
     season: tuple[int, int] = (11, 4)  # Nov-Apr
 
     def elasticity_for(self, region: str) -> float:
@@ -143,37 +151,54 @@ class Business:
 
 BUSINESSES = {
     b.key: b for b in [
+        # --- snow (sensitivities: findings/06 Vail filings, findings/09) ---
         Business("ski_resort", "Ski resort", elasticity_scale=1.0, basis=0.7, max_loss_frac=0.35,
-                 margin=0.15, reserves_frac=0.10, pass_share=0.25),
+                 margin=0.15, reserves_frac=0.10, pass_share=0.25,
+                 evidence="measured from Vail Resorts' filings, 22 seasons (findings/06)"),
         Business("ski_instructor", "Ski instructor (personal income)", elasticity_scale=1.3, basis=0.6,
-                 max_loss_frac=0.7, margin=1.0, reserves_frac=0.25),
+                 max_loss_frac=0.7, margin=1.0, reserves_frac=0.25,
+                 evidence="an estimate: no published data on instructors' pay"),
         Business("mountain_retail", "Mountain-town shop or restaurant", elasticity_scale=0.7, basis=0.5,
-                 max_loss_frac=0.5, margin=0.10, reserves_frac=0.10),
+                 max_loss_frac=0.5, margin=0.10, reserves_frac=0.10,
+                 evidence="an estimate scaled from ski resorts"),
         Business("snow_removal", "Snow removal / plowing", elasticity_scale=1.0, basis=0.8,
-                 max_loss_frac=0.8, margin=0.20, reserves_frac=0.10, fixed_elasticity=1.0),
-        # Beyond snow (perils.py). Sensitivities are ASSUMPTIONS until
-        # findings/09_industry_sensitivity.md measures them; quotes say so.
-        Business("outdoor_venue", "Outdoor venue / events (rainy summers)", elasticity_scale=1.0,
-                 basis=0.6, max_loss_frac=0.4, margin=0.15, reserves_frac=0.10,
-                 fixed_elasticity=0.25, peril="rain_summer"),
-        Business("construction", "Construction contractor (rain-stopped days)", elasticity_scale=1.0,
-                 basis=0.5, max_loss_frac=0.25, margin=0.08, reserves_frac=0.10,
-                 fixed_elasticity=0.15, peril="rain_work"),
+                 max_loss_frac=0.5, margin=0.20, reserves_frac=0.10, fixed_elasticity=1.0,
+                 variable_cost_share=0.5,
+                 evidence="measured: revenue moves ~1:1 with snowfall, -30% to -34% at 58-62% of normal (findings/09)"),
+        # --- rain, heat, frost, drought (findings/09 industry study) ---
+        Business("outdoor_venue", "Outdoor venue / park / attraction (rainy summers)", elasticity_scale=1.0,
+                 basis=0.5, max_loss_frac=0.3, margin=0.30, reserves_frac=0.10,
+                 fixed_elasticity=0.35, peril="rain_summer", variable_cost_share=0.3,
+                 pass_share=0.3, pass_damping=0.4,
+                 evidence="measured: Six Flags / Cedar Fair 2025, weather hit 18.6% of days and attendance fell 9% (findings/09)"),
+        Business("construction", "Construction firm (rain-stopped days)", elasticity_scale=1.0,
+                 basis=0.5, max_loss_frac=0.15, margin=0.08, reserves_frac=0.10,
+                 fixed_elasticity=0.2, peril="rain_work",
+                 evidence="an estimate: rain mostly delays work and backlog cushions it (findings/09)"),
+        Business("trades_worker", "Tradesperson paid by the day (rain-stopped days, personal income)",
+                 elasticity_scale=1.0, basis=0.6, max_loss_frac=0.2, margin=1.0, reserves_frac=0.25,
+                 fixed_elasticity=0.9, peril="rain_work",
+                 evidence="an estimate: a lost working day is lost pay (findings/09)"),
         Business("landscaping", "Landscaping / outdoor services (rain-stopped days)", elasticity_scale=1.0,
-                 basis=0.5, max_loss_frac=0.3, margin=0.12, reserves_frac=0.10,
-                 fixed_elasticity=0.2, peril="rain_work"),
+                 basis=0.5, max_loss_frac=0.15, margin=0.12, reserves_frac=0.10,
+                 fixed_elasticity=0.15, peril="rain_work",
+                 evidence="an estimate: one company, one episode; demand is mostly deferred (findings/09)"),
         Business("outdoor_worker", "Outdoor worker (extreme-heat days, personal income)", elasticity_scale=1.0,
                  basis=0.6, max_loss_frac=0.3, margin=1.0, reserves_frac=0.25,
-                 fixed_elasticity=0.3, peril="heat"),
+                 fixed_elasticity=0.3, peril="heat",
+                 evidence="an assumption: no data on heat-day pay losses yet"),
         Business("hvac", "HVAC contractor (cool summers)", elasticity_scale=1.0,
-                 basis=0.6, max_loss_frac=0.3, margin=0.10, reserves_frac=0.10,
-                 fixed_elasticity=0.3, peril="cool_summer"),
+                 basis=0.6, max_loss_frac=0.25, margin=0.12, reserves_frac=0.10,
+                 fixed_elasticity=0.9, peril="cool_summer",
+                 evidence="measured: local HVAC revenue moves ~1:1 with cooling degree days (findings/09)"),
         Business("orchard", "Orchard / fruit grower (late spring frost)", elasticity_scale=1.0,
                  basis=0.6, max_loss_frac=0.6, margin=0.15, reserves_frac=0.15,
-                 fixed_elasticity=0.3, peril="spring_frost"),
+                 fixed_elasticity=0.3, peril="spring_frost",
+                 evidence="an assumption: no data on frost losses yet"),
         Business("farm_crops", "Crop farm (dry growing season)", elasticity_scale=1.0,
                  basis=0.6, max_loss_frac=0.6, margin=0.15, reserves_frac=0.15,
-                 fixed_elasticity=0.6, peril="drought"),
+                 fixed_elasticity=0.6, peril="drought", pass_damping=1.0,
+                 evidence="an estimate from the 2012 drought only: yield loss x (1 - ~40% price offset) (findings/09)"),
     ]
 }
 
@@ -424,7 +449,9 @@ def quote(
     pass_share = biz.pass_share if pass_share is None else float(pass_share)
     if not 0.0 <= pass_share <= 1.0:
         raise ValueError("pass share must be between 0% and 100%")
-    elasticity = biz.elasticity_for(region) * (1.0 - PASS_DAMPING * pass_share)
+    elasticity = biz.elasticity_for(region) * (1.0 - biz.pass_damping * pass_share)
+    # Revenue lost -> profit lost: some costs fall with revenue.
+    elasticity *= 1.0 - biz.variable_cost_share
     basis = biz.basis_for(region) if basis is None else float(basis)
 
     # History from the best source: a mountain snow station, a NOAA station,
@@ -504,9 +531,10 @@ def quote(
         f"A bad season {peril.condition(trigger, unit)} here ({rule}); {prob.historical:.0%} of the {prob.n_seasons} seasons since {totals.index.min()} were that bad.",
         f"Revenue falls {elasticity:.2f}% for every 1% {'above' if high else 'below'} normal (shortfalls beyond {MAX_SHORTFALL_COUNTED:.0%} count as {MAX_SHORTFALL_COUNTED:.0%}), capped at {biz.max_loss_frac:.0%} of revenue — "
         + (f"{REGION_EVIDENCE.get(region, 'an assumption')} ({region})" if biz.fixed_elasticity is None and biz.elasticity_scale == 1.0
-           else "set directly for this business" if biz.fixed_elasticity is not None
-           else f"{biz.elasticity_scale:g}x the ski-resort figure for this region ({region}); no published data exists for this business type, so treat it as an estimate")
-        + (f", reduced because {pass_share:.0%} of revenue is season passes sold before the snow is known" if pass_share > 0 else "")
+           else biz.evidence if biz.fixed_elasticity is not None
+           else f"{biz.elasticity_scale:g}x the ski-resort figure for this region ({region}); {biz.evidence}")
+        + (f"; reduced because {pass_share:.0%} of revenue is already locked in (passes, contracts or insurance)" if pass_share > 0 else "")
+        + (f"; {biz.variable_cost_share:.0%} of lost revenue is offset by lower costs" if biz.variable_cost_share > 0 else "")
         + ".",
         f"A contract on this place's {peril.label.lower()} tracks your revenue with correlation {basis:.1f} (other things matter too).",
         f"Cushion for a bad season: ${reserves:,.0f} cash reserves plus a normal season's profit of ${revenue * margin:,.0f} ({margin:.0%} of ${revenue:,.0f} revenue); risk aversion {gamma:g}.",

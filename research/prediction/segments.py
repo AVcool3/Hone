@@ -67,19 +67,28 @@ class Occupation:
 OCCUPATIONS = [
     # basis 0.6 / 0.8 / 0.05: measured upper bounds on settled Kalshi markets
     # (findings/02_history.md: gas 0.52-0.68, CPI 0.79-0.82, U3 vs one job 0.02)
-    Occupation("rideshare", "Rideshare / delivery driver (fuel costs)", 45_000, 0.10, 0.60,
+    Occupation("rideshare", "Rideshare / delivery driver (fuel costs)", 45_000, 0.05, 0.60,
                "KXAAAGASM", 0.48, 30_861, 13_873),
     Occupation("retiree", "Retiree on fixed income (inflation)", 40_000, 0.06, 0.80,
                "KXCPIYOY", 0.35, 57_385, 6_866),
-    Occupation("contractor", "Contract worker (unemployment risk)", 70_000, 0.50, 0.05,
+    Occupation("contractor", "Contract worker (unemployment risk)", 70_000, 0.50, 0.12,
                "KXU3MAX", 0.10, 10_668, 10_033),
-    Occupation("realtor", "Real-estate agent / mortgage broker (rates)", 80_000, 0.40, 0.50,
+    Occupation("realtor", "Real-estate agent (rates)", 80_000, 0.30, 0.50,
                "KX30YMORTW", 0.42, 723, 1_044),
+    # From findings/09 (industry filings): rideshare fuel costs a bad gas year
+    # ~4-5% of gross pay (not 10%); realtors lose ~30% in a bad rate year,
+    # mortgage brokers ~55-60% (Rocket -71%); recruiters' placement fees fell
+    # 39% while payrolls grew (basis 0.30); temp jobs fall ~5x total payrolls
+    # (contractor basis ~0.12, derived); hotel workers lose ~15% (hours, tips).
+    Occupation("mortgage_broker", "Mortgage broker / loan officer (rates)", 90_000, 0.58, 0.50,
+               "KX30YMORTW", 0.42, 723, 1_044),
+    Occupation("hospitality", "Hotel / restaurant worker (recession)", 35_000, 0.15, 0.12,
+               "KXU3MAX", 0.10, 10_668, 10_033),
     Occupation("ad_freelancer", "Ad / media freelancer (ad budgets)", 60_000, 0.30, 0.40,
                "KXSTREAMINGADS", 0.18, 3_860, 161),
     Occupation("ski", "Ski instructor / mountain town (snowfall)", 35_000, 0.35, 0.60,
                "KXDENSNOWM", 0.49, 138, 25),
-    Occupation("recruiter", "Recruiter (payroll growth)", 75_000, 0.35, 0.45,
+    Occupation("recruiter", "Recruiter (payroll growth)", 75_000, 0.40, 0.30,
                "KXPAYROLLS", 0.28, 408, 241),
     Occupation("tech", "Tech worker (layoffs)", 150_000, 0.50, 0.15,
                "KXTECHLAYOFF", 0.52, 19, 200),

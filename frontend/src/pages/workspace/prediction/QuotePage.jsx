@@ -173,11 +173,12 @@ export default function QuotePage() {
                 hint={`Default: 30 — ${biz?.high_is_bad ? 'above 130%' : 'below 70%'} of normal${biz ? ` ${biz.peril_label.toLowerCase()} (${biz.season})` : ''}. Bigger = rarer, cheaper cover for a worse season.`}>
                 <input id="q-trig" type="number" min="5" max="70" value={form.triggerGap} onChange={e => set({ triggerGap: e.target.value })} />
               </Field>
-              {/* Season passes are paid before the snow is known, so they soften a
-                  bad season (Vail's filings: elasticity x (1 - 0.7 x pass share)). */}
-              {biz?.pass_share > 0 && (
-                <Field label="Revenue from season passes sold in advance (%)" htmlFor="q-pass"
-                  hint={`Default: ${fmtPct(biz.pass_share)}. Pre-sold passes don't refund in a bad season.`}>
+              {/* Revenue locked in before the season (passes, contracts, crop
+                  insurance) doesn't fall in a bad one, so it softens the loss
+                  (Vail's filings: sensitivity x (1 - 0.7 x share)). */}
+              {biz && (
+                <Field label="Revenue already locked in before the season (%)" htmlFor="q-pass"
+                  hint={`Season passes, fixed contracts or crop insurance. Default: ${fmtPct(biz.pass_share)}.`}>
                   <input id="q-pass" type="number" min="0" max="100" value={form.passShare} onChange={e => set({ passShare: e.target.value })} />
                 </Field>
               )}

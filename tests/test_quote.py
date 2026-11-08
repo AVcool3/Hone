@@ -313,7 +313,10 @@ class TestRegions:
 
     def test_snow_removal_uses_its_own_sensitivity(self, weather):
         q = quote("snow_removal", "Snowtown", 500_000, today=TODAY, session=weather)
-        assert q.elasticity == 1.0
+        # revenue moves 1:1 with snow (measured), but subcontractor costs fall
+        # too, so half of the lost revenue is lost profit (findings/09)
+        assert q.elasticity == pytest.approx(0.5)
+        assert any("offset by lower costs" in a for a in q.assumptions)
 
 
 # ------------------------------------------------------------ snow stations
@@ -449,3 +452,15 @@ class TestPerils:
         assert PERILS["cool_summer"].condition(8, "days over 30°C") == "has 7 or fewer days over 30°C (Jun–Aug)"
         # frost normally zero: trigger 0.5 means any frost night
         assert PERILS["spring_frost"].condition(0.5).startswith("has 1 or more nights")
+
+
+
+def test_every_quote_says_where_its_sensitivity_comes_from(weather):
+    """findings/09: some sensitivities are measured, some are estimates —
+    every quote must say which."""
+    from hone.prediction.quote import BUSINESSES
+    for key, biz in BUSINESSES.items():
+        assert biz.evidence and ("measured" in biz.evidence or "estimate" in biz.evidence
+                                 or "assumption" in biz.evidence), key
+    q = quote("outdoor_venue", "Snowtown", 1_000_000, today=TODAY, session=weather)
+    assert any("Six Flags" in a for a in q.assumptions)

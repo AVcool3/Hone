@@ -2177,6 +2177,7 @@ def create_app() -> FastAPI:
             {"key": b.key, "label": b.label, "elasticity_scale": b.elasticity_scale, "basis": b.basis,
              "pass_share": b.pass_share, "peril": b.peril, "peril_label": PERILS[b.peril].label,
              "high_is_bad": PERILS[b.peril].high_is_bad, "season": PERILS[b.peril].season_label,
+             "evidence": b.evidence,
              "margin": b.margin, "reserves_frac": b.reserves_frac}
             for b in BUSINESSES.values()
         ]

@@ -2166,6 +2166,26 @@ def create_app() -> FastAPI:
             **payload,
         )
 
+    # ------------------------------------------------------------- labor
+    @app.get("/api/predict/labor-defaults")
+    def predict_labor_defaults(
+        industry: str | None = None, place: str | None = None,
+        contract: str = "unemployment", exposure: str = "job", horizon_months: int = 1,
+    ) -> dict:
+        """Suggested hedge inputs from BLS data (hone/prediction/labor.py):
+        your industry's chance of a job loss, and how closely a national
+        contract tracks your job, your state's economy, or your region's
+        prices. Includes the evidence sentence to show the user."""
+        from ..prediction import labor
+
+        try:
+            out = labor.hedge_defaults(industry=industry, place=place, contract=contract,
+                                       horizon_months=horizon_months, exposure=exposure)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        out["industries"] = {k: v["label"] for k, v in labor.INDUSTRIES.items()}
+        return out
+
     # ---------------------------------------------------------- quotes
     @app.get("/api/predict/businesses")
     def predict_businesses() -> list[dict]:

@@ -488,3 +488,19 @@ def test_frozen_tables_are_complete_and_in_range():
     for row in {**labor.CPI_BASIS, **labor.CPI_METRO_BASIS}.values():
         assert row["annual"] is None or 0 < row["annual"] <= 1
     assert 0.05 < labor.DISPLACEMENT_SCALE < 0.3
+
+
+# ---------------------------------------------------------------- the API
+def test_labor_defaults_endpoint():
+    """The hedge page can ask for data-driven inputs (findings/08)."""
+    from fastapi.testclient import TestClient
+    from hone.web.app import create_app
+    c = TestClient(create_app())
+    job = c.get("/api/predict/labor-defaults", params={"industry": "construction", "exposure": "job"}).json()
+    assert 0 < job["loss_prob"] < 0.2 and job["basis_correlation"] <= 0.05      # national U3 barely tracks one job
+    local = c.get("/api/predict/labor-defaults", params={"place": "California", "exposure": "local_economy"}).json()
+    assert local["basis_correlation"] > job["basis_correlation"] and local["loss_prob"] is None
+    cpi = c.get("/api/predict/labor-defaults", params={"place": "Ohio", "contract": "cpi", "exposure": "cost"}).json()
+    assert 0.4 < cpi["basis_correlation"] < 0.9
+    assert "construction" in job["industries"]
+    assert c.get("/api/predict/labor-defaults", params={"contract": "bitcoin"}).status_code == 422

@@ -104,6 +104,10 @@ For each plan Hone reports:
   - CPI vs. a retiree's purchasing power: about 0.8;
   - national unemployment vs. one person's job: **0.02**.
 
+  A follow-up BLS study (08) measured national unemployment vs. one
+  person's job at 0–0.02. It tracks a *state's* job market at about 0.34,
+  and regional CPI tracks national CPI at 0.61–0.66; see
+  `/api/predict/labor-defaults`.
   The page's defaults now use these numbers. Labor-market contracts can't
   hedge an individual's job.
 - **Basis risk makes demand hump-shaped.** The most risk-averse people buy

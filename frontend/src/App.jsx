@@ -2,7 +2,8 @@
  * Route table. Every page and every workspace tool has its own URL, so
  * back/forward, refresh and shared links all work.
  *
- *   /                                   Stocks overview (marketing)
+ *   /                                   Landing page + waitlist (pages/marketing/Landing.jsx)
+ *   /stocks                             Stocks overview (marketing)
  *   /:product                           product overview  (stocks | crypto | prediction-markets)
  *   /:product/how-it-works
  *   /:product/methodology[/:doc]        repository docs, verbatim
@@ -13,12 +14,13 @@
  * The Python server returns index.html for all of these (hone/web/app.py).
  */
 import { lazy, Suspense, useEffect } from 'react';
-import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { PRODUCTS, productFromSlug } from './lib/products.js';
 import SiteHeader from './components/SiteHeader.jsx';
 import SiteFooter from './components/SiteFooter.jsx';
 
 import Home from './pages/marketing/Home.jsx';
+import Landing from './pages/marketing/Landing.jsx';
 // Docs-heavy pages load on demand: they bundle the repository's markdown,
 // the backtest CSVs and the markdown renderer, which most visits never need.
 const HowItWorks = lazy(() => import('./pages/marketing/HowItWorks.jsx'));
@@ -88,9 +90,10 @@ export default function App() {
     <>
       <ScrollManager />
       <Routes>
+        {/* The front page has its own plain header/footer and points to the waitlist. */}
+        <Route path="/" element={<Landing />} />
         <Route element={<PublicLayout />}>
-          <Route path="/" element={<Home />} />
-          <Route path="/stocks" element={<Navigate to="/" replace />} />
+          <Route path="/stocks" element={<Home />} />
           <Route path="/:product" element={<ProductGuard><Home /></ProductGuard>} />
           <Route path="/:product/how-it-works" element={<ProductGuard><HowItWorks /></ProductGuard>} />
           <Route path="/:product/methodology/:doc?" element={<ProductGuard><DocsPage kind="methodology" /></ProductGuard>} />

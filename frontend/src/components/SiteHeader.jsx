@@ -2,7 +2,7 @@
  * SiteHeader — public pages.
  *   Left:   Hone logo + product switcher (selects the product)
  *   Middle: sections for the selected product (explain the product)
- *   Right:  one primary action, "Try the demo" (opens the sample workspace)
+ *   Right:  "Join the waitlist" (the landing page form) and "Try the demo"
  * On phones the product switcher stays visible; the sections fold into a menu.
  */
 import { useEffect, useState } from 'react';
@@ -32,7 +32,7 @@ export default function SiteHeader({ product }) {
     <header className="site-header">
       <div className="container site-header__inner">
         <div className="site-header__brand">
-          <Logo to={publicPath(product.slug)} />
+          <Logo to="/" />
           <ProductSwitcher current={product.slug} size="md" className="hide-sm" />
         </div>
         <nav className={`site-nav ${open ? 'is-open' : ''}`} aria-label={`${product.name} sections`}>
@@ -41,10 +41,13 @@ export default function SiteHeader({ product }) {
               {s.label}
             </NavLink>
           ))}
-          <Link to={appPath(product.slug)} className="btn btn--primary btn--sm site-nav__cta-mobile">Try the demo</Link>
+          <Link to={appPath(product.slug)} className="site-nav__link site-nav__cta-mobile">Try the demo</Link>
+          <Link to="/#waitlist" className="btn btn--primary btn--sm site-nav__cta-mobile">Join the waitlist</Link>
         </nav>
         <div className="site-header__actions">
-          <Link to={appPath(product.slug)} className="btn btn--primary btn--sm hide-sm">Try the demo</Link>
+          {/* New visitors go to the waitlist; the demo stays one click away. */}
+          <Link to={appPath(product.slug)} className="btn btn--secondary btn--sm hide-sm">Try the demo</Link>
+          <Link to="/#waitlist" className="btn btn--primary btn--sm hide-sm">Join the waitlist</Link>
           <button
             type="button"
             className="btn btn--secondary btn--sm show-sm"

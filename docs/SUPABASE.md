@@ -82,6 +82,39 @@ create policy "own link: delete" on public.broker_links
 The secret here can't be used on its own: every SnapTrade request also has to
 be signed with your server's consumer key, which never leaves the server.
 
+## 2c. The `waitlist` table (front-page sign-ups)
+
+The front page (`frontend/src/pages/marketing/Landing.jsx`) saves waitlist
+sign-ups straight to this table. Visitors can **add** a row but can't read
+any: you see the list only in the Supabase dashboard (**Table Editor →
+waitlist**), or export it as CSV from there. Run once in the **SQL Editor**:
+
+```sql
+create table public.waitlist (
+  id         bigint generated always as identity primary key,
+  email      text not null check (char_length(email) <= 254 and email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
+  role       text check (char_length(role) <= 40),
+  business   text check (char_length(business) <= 200),
+  source     text check (char_length(source) <= 40),
+  created_at timestamptz not null default now()
+);
+
+-- One sign-up per email (case-insensitive). A repeat sign-up gets a
+-- friendly "you're already on the list" instead of a duplicate row.
+create unique index waitlist_email_unique on public.waitlist (lower(email));
+
+alter table public.waitlist enable row level security;
+
+-- Anyone may join. There is deliberately NO select/update/delete policy,
+-- so the list can't be read or changed with the site's public key.
+create policy "anyone can join" on public.waitlist
+  for insert to anon, authenticated with check (true);
+```
+
+Until this table exists, the form shows "Something went wrong saving your
+spot". If the site has no Supabase settings at all, the button is disabled
+and the form says sign-ups aren't switched on.
+
 ## 3. Configure email auth
 
 In **Authentication → Providers → Email**, make sure Email is enabled.

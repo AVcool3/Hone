@@ -107,7 +107,7 @@ export const sectionsFor = slug =>
 
 /* URL helpers so every link is built the same way. */
 export const publicPath = (slug, section = '') => {
-  if (slug === 'stocks' && !section) return '/';
+  // "/" is the landing page (Landing.jsx); every product overview has its own path.
   return `/${slug}${section ? `/${section}` : ''}`;
 };
 export const appPath = (slug, section = '') => `/${slug}/app${section ? `/${section}` : ''}`;

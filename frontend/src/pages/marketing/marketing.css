@@ -52,7 +52,8 @@
 
 /* Launch cards (SpotlightCard wrappers) */
 .launch-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-.launch { padding: 26px !important; border-radius: 16px !important; min-height: 210px; display: flex; flex-direction: column; }
+.launch { position: relative; background: var(--surface); border: 1px solid var(--line); padding: 26px; border-radius: 12px; min-height: 210px; display: flex; flex-direction: column; }
+.launch:hover { border-color: var(--ink-3); }
 .launch__icon { width: 40px; height: 40px; border-radius: 10px; background: var(--primary-wash); color: var(--primary); display: grid; place-items: center; margin-bottom: 18px; }
 .launch h3 { font-size: 20px; }
 .launch p { color: var(--ink-2); margin-top: 8px; font-size: 15.5px; flex: 1; }

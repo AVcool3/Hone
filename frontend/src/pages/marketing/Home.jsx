@@ -6,7 +6,7 @@
  *      that calls the real engine (no screenshots, no invented numbers).
  *   2. Feature tabs: five lavender pills; each panel shows one tool working
  *      on the same sample portfolio as the hero, plus a link to the full docs.
- *   3. Launch cards (React Bits SpotlightCard): jump straight into a tool.
+ *   3. Launch cards: jump straight into a tool.
  *   4. The problem, then the FAQ ("Is this real money?").
  *   5. A closing call to action.
  *
@@ -16,9 +16,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useProduct } from '../../App.jsx';
-import AnimatedContent from '../../reactbits/AnimatedContent/AnimatedContent.jsx';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import SpotlightCard from '../../reactbits/SpotlightCard/SpotlightCard.jsx';
 import AllocationBars from '../../components/AllocationBars.jsx';
 import Icon from '../../components/Icon.jsx';
 import { DensityChart, OutcomeBars } from '../../components/charts.jsx';
@@ -41,33 +38,14 @@ const PM_SAMPLE = { wealth: 40000, loss: 12000, priceCents: 30 };
 /** Short label for a symbol ("SOL/USD" -> "SOL"). */
 const short = sym => (sym || '').replace('/USD', '');
 
-/* -------------------------------------------------------------------------- */
-/* Reveal: a subtle, once-only entrance. Marketing pages only.                */
-/* -------------------------------------------------------------------------- */
 /*
- * ScrollTrigger measures where each reveal starts once, at mount. The live
- * hero and the feature panels change height after their data loads, which
- * would leave those measurements stale and some sections never revealed.
- * This keeps them current: any change in page height triggers a refresh.
+ * Reveal used to fade sections in on scroll. The site no longer animates
+ * content in (it read as gimmicky), so it's now a plain wrapper. Kept as a
+ * component so the page structure stays readable; `delay` is ignored.
  */
-function useScrollTriggerRefresh() {
-  useEffect(() => {
-    let t = 0;
-    const ro = new ResizeObserver(() => {
-      clearTimeout(t);
-      t = setTimeout(() => ScrollTrigger.refresh(), 120);
-    });
-    ro.observe(document.body);
-    return () => { clearTimeout(t); ro.disconnect(); };
-  }, []);
-}
-
-function Reveal({ children, delay = 0, className }) {
-  return (
-    <AnimatedContent distance={24} duration={0.6} ease="power3.out" delay={delay} threshold={0.12} once className={className}>
-      {children}
-    </AnimatedContent>
-  );
+// eslint-disable-next-line no-unused-vars
+function Reveal({ children, delay, className }) {
+  return <div className={className}>{children}</div>;
 }
 
 /* ========================================================================== */
@@ -75,7 +53,6 @@ function Reveal({ children, delay = 0, className }) {
 /* ========================================================================== */
 export default function Home() {
   const product = useProduct();
-  useScrollTriggerRefresh(); // keep reveal positions correct as the page grows
   // `key` remounts everything when the product changes, so no stale preview
   // from Stocks ever shows on the Crypto page.
   return <HomeInner key={product.slug} product={product} />;
@@ -113,7 +90,6 @@ function HomeInner({ product }) {
         <div className="container">
           <Reveal>
             <div className="mk-head">
-              <div className="eyebrow mb-3">Jump in</div>
               <h2 id="launch-title">Start with whichever question you have.</h2>
             </div>
           </Reveal>
@@ -125,7 +101,6 @@ function HomeInner({ product }) {
         <div className="container">
           <Reveal>
             <div className="mk-head">
-              <div className="eyebrow mb-3">The problem</div>
               <h2 id="problem-title">{isPM ? 'Your paycheck carries risk nobody sizes.' : 'Most tools stop at a risk label.'}</h2>
             </div>
           </Reveal>
@@ -137,8 +112,7 @@ function HomeInner({ product }) {
         <div className="container">
           <Reveal>
             <div className="mk-head">
-              <div className="eyebrow mb-3">Built to be trusted</div>
-              <h2 id="faq-title">Straight answers.</h2>
+              <h2 id="faq-title">Common questions</h2>
             </div>
           </Reveal>
           <Faq product={product} />
@@ -153,7 +127,7 @@ function HomeInner({ product }) {
               <Button size="lg" to={isPM ? appPath(product.slug, 'hedge') : appPath(product.slug)} iconRight="ArrowRight01Icon">
                 {isPM ? 'Size a sample hedge' : 'Explore a sample portfolio'}
               </Button>
-              <Button size="lg" variant="secondary" to={publicPath(product.slug, 'how-it-works')}>How it works</Button>
+              <Button size="lg" variant="secondary" to="/#waitlist">Join the waitlist</Button>
             </div>
           </Reveal>
         </div>
@@ -244,7 +218,7 @@ function HeroPortfolio({ product, onResult }) {
             <span className="subtle">{product.kind}</span>
           </div>
           <h1 className="display hero__title">
-            Turn your investment views into a portfolio <em>you can explain.</em>
+            Turn your investment views into a portfolio you can explain.
           </h1>
           <p className="lede hero__lede">
             Compare a model-proposed allocation with what you hold, understand the risk behind every change,
@@ -368,7 +342,7 @@ function HeroHedge({ product, onResult }) {
             <span className="badge badge--product" data-product={product.slug}>{product.name}</span>
             <span className="subtle">{product.kind}</span>
           </div>
-          <h1 className="display hero__title">Your paycheck is already a <em>position.</em></h1>
+          <h1 className="display hero__title">Your paycheck is already a position.</h1>
           <p className="lede hero__lede">
             If your income rises and falls with snowfall, ad budgets, hiring or mortgage rates, an event contract can
             pay out in the bad season. Hone sizes that contract to your risk tolerance and shows the cost.
@@ -903,12 +877,12 @@ function LaunchCards({ product }) {
     <div className="launch-grid">
       {cards.map((c, i) => (
         <Reveal key={c.title} delay={i * 0.06}>
-          <SpotlightCard theme="light" spotlightColor="#174e43" intensity={0.12} borderGlow={0.35} spotlightSize={260} className="launch">
+          <div className="launch">
             <div className="launch__icon"><Icon name={c.icon} size={20} /></div>
             <h3><Link to={c.to} className="stretched">{c.title}</Link></h3>
             <p>{c.body}</p>
             <span className="launch__go" aria-hidden="true">Open <Icon name="ArrowRight01Icon" size={16} /></span>
-          </SpotlightCard>
+          </div>
         </Reveal>
       ))}
     </div>
@@ -934,7 +908,6 @@ function Problem({ product }) {
     <div className="problem">
       {items.map((it, i) => (
         <Reveal key={it.t} delay={i * 0.06}>
-          <div className="problem__n">0{i + 1}</div>
           <h3>{it.t}</h3>
           <p>{it.b}</p>
         </Reveal>
